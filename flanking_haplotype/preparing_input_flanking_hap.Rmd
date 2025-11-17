@@ -1,0 +1,34 @@
+---
+title: "Untitled"
+author: "Metmiku"
+date: "2025-10-08"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r}
+
+# first we need to change we need to extract the region of k13 from the vcf file after only filtering out the Gondar samples , then using 
+#bcftools view -S gondar.txt -Oz -o 072025_pf_mgen_ethiopia_popgen.filt.csq.bi.GT.miss0.2.vqslod.filt.snps_ethiopia_gonder.vcf.gz  072025_pf_mgen_ethiopia_popgen.filt.csq.bi.GT.miss0.2.vqslod.filt.snps.vcf.gz
+#bcftools view -r Pf3D7_13_v3:1700000-1800000 TES2324_March25_filt.csq.bi.GT.miss0.4.vqslod.filt.filt.rem.snps.vcf.gz -Oz -o TES2324_March25_filt.csq.bi.GT.miss0.4.vqslod.filt.filt.rem.snps_k13.vcf.gz
+#python ~/software/fastq2matrix/scripts/vcf2matrix.py 
+
+k13_binary_matrix <- read.table("//wsl.localhost/Ubuntu-24.04/home/metmiku/Leucodepleted/whole-genome-sequence-analysis/haplotype/gonder/072025_pf_mgen_ethiopia_popgen.filt.csq.bi.GT.miss0.2.vqslod.filt.snps_ethiopia_gonder_k13flanking.mat.bin",header = TRUE) %>% 
+  select(-c(chr,ref))
+k13_binary_matrix[is.na(k13_binary_matrix)] <- 0
+df_matrix <- as.matrix(k13_binary_matrix)
+rownames(df_matrix) <- k13_binary_matrix$pos
+df_matrix <- df_matrix[,-1]
+tf_matrix <- t(df_matrix)
+write.csv(tf_matrix,"//wsl.localhost/Ubuntu-24.04/home/metmiku/Leucodepleted/whole-genome-sequence-analysis/haplotype/gonder/gonder_flanking_region.csv")
+```
+
