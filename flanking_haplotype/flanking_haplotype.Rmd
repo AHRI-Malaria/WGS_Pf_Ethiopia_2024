@@ -1,0 +1,156 @@
+---
+title: "flanking_haplotype"
+author: "Metmiku"
+date: "2025-11-26"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+```{r}
+library(ComplexHeatmap)
+library(circlize)
+library(dendextend)
+library(dplyr)
+library(readr)
+library(tidyverse)
+
+
+k13_binary_matrix <- read.table("//wsl.localhost/Ubuntu-24.04/home/metmiku/Leucodepleted/whole-genome-sequence-analysis/haplotype/gonder/072025_pf_mgen_ethiopia_popgen.filt.csq.bi.GT.miss0.2.vqslod.filt.snps_ethiopia_gonder_k13flanking.mat.bin",header = TRUE) %>% 
+  select(-c(chr,ref))
+k13_binary_matrix[is.na(k13_binary_matrix)] <- 0
+df_matrix <- as.matrix(k13_binary_matrix)
+rownames(df_matrix) <- k13_binary_matrix$pos
+df_matrix <- df_matrix[,-1]
+tf_matrix <- t(df_matrix)
+
+full_data_dataframe <- data.frame(sample = rownames(tf_matrix),tf_matrix,row.names = NULL,check.names = FALSE)
+
+
+
+# # Read in combined and filtered variant table
+# full_data <- read_csv("//wsl.localhost/Ubuntu-24.04/home/metmiku/Leucodepleted/whole-genome-sequence-analysis/haplotype/gonder/gonder_flanking_region.csv") 
+
+full_data <- full_data_dataframe
+# Replace values: 0.5 -> 1, NA -> 0
+full_data[full_data == 0.5] <- 1
+full_data[is.na(full_data)] <- 0
+
+# Convert column names to numeric and remove columns with all zeros
+#colnames(full_data) <- as.numeric(colnames(full_data))
+full_data <- full_data[, colSums(full_data != 0) > 0]
+
+# Define special site
+#k13675 = 1724974
+#k13622 =1725133
+target = 1725133
+
+# Apply unique encoding for target locus
+full_data[[as.character(target)]] <- ifelse(full_data[[as.character(target)]] == 1, 4,
+                                          ifelse(full_data[[as.character(target)]] == 0, 3, 
+                                                full_data[[as.character(target)]]))
+
+#making matrix 
+full_data_mat = as.matrix(full_data[,2:ncol(full_data)])
+rownames(full_data_mat) = full_data$sample
+
+metadata_1 <- as.data.frame(full_data$sample) %>% 
+  rename("sample"="full_data$sample") %>% 
+  mutate(site = case_when(
+    grepl("GM",full_data$sample) ~ "Gondar",
+    TRUE ~ "unknown"
+  ))
+
+
+# Filter the matrix to only include samples that have metadata
+full_data_mat <- full_data_mat[rownames(full_data_mat) %in% metadata_1$sample, ]
+
+# Define colors for annotations
+site_colors <- setNames(
+  brewer.pal(length(unique(metadata_1$site)), "Set3"),
+  unique(metadata_1$site)
+)
+
+
+
+# Create the row annotation object
+ha_row <- rowAnnotation(
+  df = metadata_1["site"],
+  col = list(
+    Site = site_colors
+  ),
+  show_annotation_name = TRUE,
+  annotation_name_side = "top"
+)
+
+
+
+# Create sample annotations
+sample_annot <- data.frame(
+  row.names = rownames(full_data_mat),
+  Treatment = sapply(rownames(full_data), function(sample) {
+    region <- metadata$site[metadata$sample == sample]
+    if(length(region) > 0) region[1] else "Unknown"
+  })
+)
+
+geo_cmap <- c('#E9F4FA', "#023E73", "#EC741E", '#FF7EE5', '#D3D3D3')
+genotype_of_interest_color <- "#0F0F10"
+
+# Define color function for numeric values
+col_fun <- colorRamp2(
+  breaks = c(0, 1, 2, 3, 4),
+  colors = c(geo_cmap[1], geo_cmap[2], "black", geo_cmap[4], geo_cmap[5])
+)
+
+# Column annotation for special site
+special_sites <- ifelse(colnames(full_data_mat) == target, "R622I", "Other")
+ha_col <- columnAnnotation(
+  Site = special_sites,
+  col = list(Site = c("R622I" = genotype_of_interest_color, "Other" = "white")),
+  show_legend = FALSE,
+  show_annotation_name = FALSE
+)
+
+
+# Create the heatmap with built-in clustering
+print("Creating heatmap with built-in clustering...")
+
+rowcluster <- hclust(dist(full_data_mat, method = "euclidean"), method = "ward.D2")
+
+ht <- Heatmap(
+  matrix = full_data_mat,
+  name = "Genotype",
+  col = col_fun,
+  cluster_rows = rowcluster,
+  
+  # Clustering options - let ComplexHeatmap handle distance calculation
+  clustering_distance_rows = "euclidean",  # or "manhattan", "pearson", "spearman", etc.
+  clustering_method_rows = "complete",     # same method as your Python script
+  left_annotation = ha_row,
+  top_annotation = ha_col,
+  cluster_columns = FALSE,  # Keep columns in original order
+  show_row_names = TRUE,
+  show_column_names = FALSE,
+  row_names_side = "left",
+  heatmap_legend_param = list(
+    title = "Genotype",
+    at = c(0, 1, 3, 4),
+    labels = c("REF", "ALT", "R622I_REF", "R622I_ALT")
+  )
+)
+
+# Save the heatmap
+png("C:/Users/Admin/Desktop/Leukodeplate_WGS/haplotype/622I_test_using_r_name.png", width = 30, height = 10, units = "in", res = 500)
+draw(ht)
+dev.off()
+# Example with Manhattan distance (similar to your custom function)
+
+```
+
+
+
