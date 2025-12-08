@@ -93,7 +93,7 @@ ha_row <- rowAnnotation(
 sample_annot <- data.frame(
   row.names = rownames(full_data_mat),
   Treatment = sapply(rownames(full_data), function(sample) {
-    region <- metadata$site[metadata$sample == sample]
+    region <- metadata_1$site[metadata_1$sample == sample]
     if(length(region) > 0) region[1] else "Unknown"
   })
 )
