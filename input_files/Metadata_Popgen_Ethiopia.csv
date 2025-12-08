@@ -1,0 +1,124 @@
+﻿Sample,Phenotype,site,Study
+AC002_D0,TS,Gambella,TES
+AC004_D0,TF,Gambella,TES
+AC011_D0,TS,Gambella,TES
+AC034_D0,TS,Gambella,TES
+AC050_D0,TS,Gambella,TES
+AC069_D0,TS,Gambella,TES
+AC074_D0,TS,Gambella,TES
+AC084_D0,TF,Gambella,TES
+AC091_D0,TF,Gambella,TES
+GM002_D0,TS,Gondar,TES
+GM025_D0,TS,Gondar,TES
+GM027_D0,TF,Gondar,TES
+GM045_D0,TF,Gondar,TES
+GM046_D0,TF,Gondar,TES
+GM065_D0,TS,Gondar,TES
+GM068_D0,TS,Gondar,TES
+GM070_D0,TF,Gondar,TES
+GM071_D0,TS,Gondar,TES
+GM076_D0,TF,Gondar,TES
+MM011_D0,TS,Mizan,TES
+MM013_D0,TF,Mizan,TES
+MM015_D0,TS,Mizan,TES
+MM021_D0,TS,Mizan,TES
+MM033_D0,TF,Mizan,TES
+MM037_D0,TF,Mizan,TES
+MM042_D0,TS,Mizan,TES
+MM047_D0,TF,Mizan,TES
+MM051_D0,TS,Mizan,TES
+MM068_D0,TS,Mizan,TES
+MM081_D0,TS,Mizan,TES
+MM086_D0,TF,Mizan,TES
+WG24ACHC001,NA,Gambella,Leucodepletion
+WG24ACHC002,NA,Gambella,Leucodepletion
+WG24ACHC003,NA,Gambella,Leucodepletion
+WG24ACHC004,NA,Gambella,Leucodepletion
+WG24ACHC005,NA,Gambella,Leucodepletion
+WG24ACHC006,NA,Gambella,Leucodepletion
+WG24ACHC007,NA,Gambella,Leucodepletion
+WG24ACHC008,NA,Gambella,Leucodepletion
+WG24ACHC009,NA,Gambella,Leucodepletion
+WG24ACHC010,NA,Gambella,Leucodepletion
+WG24ACHC011,NA,Gambella,Leucodepletion
+WG24ACHC012,NA,Gambella,Leucodepletion
+WG24ACHC013,NA,Gambella,Leucodepletion
+WG24ACHC014,NA,Gambella,Leucodepletion
+WG24ACHC015,NA,Gambella,Leucodepletion
+WG24ACHC016,NA,Gambella,Leucodepletion
+WG24ACHC017,NA,Gambella,Leucodepletion
+WG24ACHC018,NA,Gambella,Leucodepletion
+WG24ACHC019,NA,Gambella,Leucodepletion
+WG24ACHC020,NA,Gambella,Leucodepletion
+WG24ACHC021,NA,Gambella,Leucodepletion
+WG24ACHC022,NA,Gambella,Leucodepletion
+WG24ALHC001,NA,Arba Minch,Leucodepletion
+WG24ALHC002,NA,Arba Minch,Leucodepletion
+WG24ALHC003,NA,Arba Minch,Leucodepletion
+WG24ALHC004,NA,Arba Minch,Leucodepletion
+WG24ALHC006,NA,Arba Minch,Leucodepletion
+WG24ALHC007,NA,Arba Minch,Leucodepletion
+WG24ALHC009,NA,Arba Minch,Leucodepletion
+WG24ALHC010,NA,Arba Minch,Leucodepletion
+WG24ALHC012,NA,Arba Minch,Leucodepletion
+WG24ALHC013,NA,Arba Minch,Leucodepletion
+WG24ALHC014,NA,Arba Minch,Leucodepletion
+WG24ALHC015,NA,Arba Minch,Leucodepletion
+WG24ALHC016,NA,Arba Minch,Leucodepletion
+WG24ALHC017,NA,Arba Minch,Leucodepletion
+WG24ALHC018,NA,Arba Minch,Leucodepletion
+WG24ALHC019,NA,Arba Minch,Leucodepletion
+WG24ALHC020,NA,Arba Minch,Leucodepletion
+WG24GMHC001,NA,Gondar,Leucodepletion
+WG24GMHC002,NA,Gondar,Leucodepletion
+WG24GMHC003,NA,Gondar,Leucodepletion
+WG24GMHC005,NA,Gondar,Leucodepletion
+WG24GMHC007,NA,Gondar,Leucodepletion
+WG24GMHC008,NA,Gondar,Leucodepletion
+WG24GMHC009,NA,Gondar,Leucodepletion
+WG24GMHC011,NA,Gondar,Leucodepletion
+WG24GMHC013,NA,Gondar,Leucodepletion
+WG24GMHC014,NA,Gondar,Leucodepletion
+WG24GMHC015,NA,Gondar,Leucodepletion
+WG24GMHC016,NA,Gondar,Leucodepletion
+WG24GMHC017,NA,Gondar,Leucodepletion
+WG24GMHC018,NA,Gondar,Leucodepletion
+WG24GMHC019,NA,Gondar,Leucodepletion
+WG24GMHC020,NA,Gondar,Leucodepletion
+WG24MFHC001,NA,Metehera Fentale,Leucodepletion
+WG24MFHC002,NA,Metehera Fentale,Leucodepletion
+WG24MFHC004,NA,Metehera Fentale,Leucodepletion
+WG24MFHC005,NA,Metehera Fentale,Leucodepletion
+WG24MFHC006,NA,Metehera Fentale,Leucodepletion
+WG24MFHC007,NA,Metehera Fentale,Leucodepletion
+WG24MFHC008,NA,Metehera Fentale,Leucodepletion
+WG24MFHC009,NA,Metehera Fentale,Leucodepletion
+WG24MFHC010,NA,Metehera Fentale,Leucodepletion
+WG24MFHC011,NA,Metehera Fentale,Leucodepletion
+WG24MFHC012,NA,Metehera Fentale,Leucodepletion
+WG24MFHC013,NA,Metehera Fentale,Leucodepletion
+WG24MFHC014,NA,Metehera Fentale,Leucodepletion
+WG24MFHC015,NA,Metehera Fentale,Leucodepletion
+WG24MFHC016,NA,Metehera Fentale,Leucodepletion
+WG24MFHC017,NA,Metehera Fentale,Leucodepletion
+WG24MFHC018,NA,Metehera Fentale,Leucodepletion
+WG24MFHC019,NA,Metehera Fentale,Leucodepletion
+WG24MFHC020,NA,Metehera Fentale,Leucodepletion
+WG24MHC002,NA,Mizan,Leucodepletion
+WG24MHC004,NA,Mizan,Leucodepletion
+WG24MHC005,NA,Mizan,Leucodepletion
+WG24MHC008,NA,Mizan,Leucodepletion
+WG24MHC009,NA,Mizan,Leucodepletion
+WG24MHC011,NA,Mizan,Leucodepletion
+WG24MHC014,NA,Mizan,Leucodepletion
+WG24MHC015,NA,Mizan,Leucodepletion
+WG24MHC016,NA,Mizan,Leucodepletion
+WG24MHC017,NA,Mizan,Leucodepletion
+WG24MHC018,NA,Mizan,Leucodepletion
+WG24MHC019,NA,Mizan,Leucodepletion
+WG24MHC021,NA,Mizan,Leucodepletion
+WG24MHC022,NA,Mizan,Leucodepletion
+WG24MHC023,NA,Mizan,Leucodepletion
+WG24MHC024,NA,Mizan,Leucodepletion
+WG24MHC025,NA,Mizan,Leucodepletion
+WG24MHC026,NA,Mizan,Leucodepletion
