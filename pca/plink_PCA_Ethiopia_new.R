@@ -11,7 +11,8 @@ showtext_auto()
 # Run this script
 # Rscript plink_PCA_Ethiopia_new.R --workdir . \
                     #--prefix prefix \
-                    #--metadata Popgen_db_samples_072025_filt_FINAL.csv
+                    #--metadata Popgen_db_samples_072025_filt_FINAL.csv \
+                    #--r622i ../drugres/R622I_longformat.csv
 
 
 # Parse command-line arguments
@@ -19,12 +20,14 @@ parser <- ArgumentParser(description = 'Run PCA and tree construction from PLINK
 parser$add_argument('--workdir', required=TRUE, help='Working directory containing PLINK distance files')
 parser$add_argument('--prefix', required=TRUE, help='Prefix for PLINK .dist and .dist.id files')
 parser$add_argument('--metadata', required=TRUE, help='Metadata file path (tab-separated)')
+parser$add_argument('--r622i', required=FALSE, default=NULL, help='R622I genotype file path (optional)')
 
 args <- parser$parse_args()
 
 workdir <- args$workdir
 prefix <- args$prefix
 metadata <- args$metadata
+r622i_file <- args$r622i
 
 calc_variance_explained <- function(pc_points) {
     vars <- round(pc_points$eig / sum(pc_points$eig) * 100, 1)
@@ -119,3 +122,47 @@ if (length(eth_idx) == 0) {
     theme(legend.position = "right")
   ggsave(plot = q_eth, filename = "figs/PC_13_Ethiopia_new_Admin.level.pdf", width = 6, height = 5)
 }
+
+
+# annotate by R622I (only if file provided)
+if (!is.null(r622i_file)) {
+  R622I <- read.csv(r622i_file)
+  
+  # Join R622I genotype data with Ethiopian PCA data
+  df_eth <- df_eth %>%
+    left_join(R622I, by = c("wgs_id" = "Sample"))
+  
+  # Create PCA plot colored by R622I genotype
+  # PC1 vs PC2 with R622I genotype
+  p_eth_R622I <- ggplot(df_eth, aes(x = PC1, y = PC2, color = Genotype)) +
+    geom_point(size = 2) +
+    labs(
+      x = paste0("PC1 (", vars["PC1"], "%)"),
+      y = paste0("PC2 (", vars["PC2"], "%)"),
+      color = "R622I Genotype"
+    ) +
+    scale_color_manual(
+      values = c("0/0" = "#5c965c", "0/1" = "#ff7f0e", "1/1" = "#1f77b4"),
+      na.value = "grey50"
+    ) +
+    theme_test() +
+    theme(legend.position = "right")
+  ggsave(plot = p_eth_R622I, filename = file.path(workdir, "figs/PC_12_Ethiopia_R622I.pdf"), width = 6, height = 5)
+  
+  # PC1 vs PC3 with R622I genotype
+  q_eth_R622I <- ggplot(df_eth, aes(x = PC1, y = PC3, color = Genotype)) +
+    geom_point(size = 2) +
+    labs(
+      x = paste0("PC1 (", vars["PC1"], "%)"),
+      y = paste0("PC3 (", vars["PC3"], "%)"),
+      color = "R622I Genotype"
+    ) +
+    scale_color_manual(
+      values = c("0/0" = "#5c965c", "0/1" = "#ff7f0e", "1/1" = "#1f77b4"),
+      na.value = "grey50"
+    ) +
+    theme_test() +
+    theme(legend.position = "right")
+  ggsave(plot = q_eth_R622I, filename = file.path(workdir, "figs/PC_13_Ethiopia_R622I.pdf"), width = 6, height = 5)
+}
+
