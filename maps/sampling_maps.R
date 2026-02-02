@@ -116,6 +116,8 @@ main_district_names <- c("Mizan", "Gambella", "Gondar", "Arba Minch", "Metehera 
 
 # Load the comprehensive database
 all_samples <- read.csv("../input_files/Popgen_db_samples_072025_filt_FINAL.csv", sep = ",", header = TRUE)
+all_samples <- read.csv("../input_files/Popgen_db_samples_012026_filt_FINAL.csv", sep = ",", header = TRUE)
+
 
 # Get all sites from the comprehensive database
 all_sites <- all_samples %>%
@@ -157,7 +159,9 @@ country_colors <- c(
   "Sudan" = "#FF7F00",  
   "Ghana" = "#FFFF33", 
   "Nigeria" = "#A65628",
-  "Mali" = "#eb88d4"
+  "Mali" = "#eb88d4",
+  "India" = "black",
+  "Eritrea" = "darkblue"
 )
 
 # Create separate layers for highlighted vs other countries
@@ -194,7 +198,7 @@ ggplot() +
     range = c(2, 8),
     breaks = c(10, 20, 30, 40, 100, 200),
     limits = c(1, NA)
-  ) +
+  )+
   guides(color = guide_legend(override.aes = list(size = 6))) +
   coord_sf(xlim = xlim_range, ylim = ylim_range) +
   theme_void() +
