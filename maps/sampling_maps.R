@@ -70,6 +70,71 @@ ggplot() +
 ggsave("figs/map_sites_samplesize.pdf", width = 6.5, height = 5.5, dpi = 300)
 
 
+
+
+
+
+#### All Ethiopian samples - Load Ethiopia outline (national borders)
+ethiopia <- ne_countries(scale = "medium", country = "Ethiopia", returnclass = "sf")
+
+# Get Ethiopia admin level 1 (regions)
+ethiopia_admin1 <- geodata::gadm("GADM", country = "ETH", level = 1)
+
+ethiopia_admin1_sf <- st_as_sf(ethiopia_admin1)  # Convert to sf for ggplot2
+
+# Create a world background (to make the outside grey)
+world <- ne_countries(scale = "medium", returnclass = "sf")
+
+districts <- data.frame(
+  District = c("Mizan", "Gambella", "Gondar","Arba Minch", "Metehera Fentale","West Arsi Zone","Shewa Robit Town","K/Humera","Atseged Tsimbila","West Armachiho"),
+  lon = c(35.583, 34.583, 37.467, 37.5573,39.9170,38.76544158,38.04731169,36.60972,38.0163,36.485468),
+  lat = c(6.15, 8.25, 12.6, 6.0350,8.8995,7.507236611,11.56246391,14.28611,14.07633,13.464537)
+)
+samples <- read.csv("../input_files/Popgen_db_samples_072025_filt_FINAL.csv", sep=",", header=TRUE)
+sample_counts <- samples %>%
+  count(District) %>%
+  rename(District = District, sample_count = n)
+
+districts <- left_join(districts, sample_counts, by = "District")
+districts$sample_count[is.na(districts$sample_count)] <- 0  # Replace NAs with 0
+
+# Count samples per site-study
+study_counts <- samples %>%
+  count(District, Study) %>%
+  group_by(District) %>%
+  mutate(
+    total = sum(n),
+    frac = n / total,
+    angle = 2 * pi * frac,
+    start = cumsum(lag(angle, default = 0)),
+    end = cumsum(angle)
+  ) %>%
+  left_join(districts, by = c("District"))
+
+
+# Plot map site names, sample count
+ggplot() +
+  geom_sf(data = world, fill = "grey90", color = NA) +
+  geom_sf(data = ethiopia_admin1_sf, fill = "white", color = "black", size = 0.8) +
+  geom_point(data = districts, aes(x = lon, y = lat, size = sample_count, color = District)) +
+  scale_size_continuous(
+    name = "Sample count",      
+    range = c(2, 8),
+    breaks = c(10, 20, 30,40),
+    limits = c(2, 40)
+  ) +
+  scale_color_discrete(name = "District") + 
+  guides(color = guide_legend(override.aes = list(size = 6))) +
+  coord_sf(xlim = c(32, 48), ylim = c(3, 15)) +
+  theme_void() +
+  theme(
+    plot.title = element_text(hjust = 1.5, size = 14)
+  )
+ggsave("figs/map_sites_samplesize_all_ethiopia.pdf", width = 6.5, height = 5.5, dpi = 300)
+
+
+
+
 # Plot map with studies
 ggplot() +
   geom_sf(data = world, fill = "grey90", color = NA) +
@@ -116,27 +181,27 @@ main_district_names <- c("Mizan", "Gambella", "Gondar", "Arba Minch", "Metehera 
 
 # Load the comprehensive database
 all_samples <- read.csv("../input_files/Popgen_db_samples_072025_filt_FINAL.csv", sep = ",", header = TRUE)
-all_samples <- read.csv("../input_files/Popgen_db_samples_012026_filt_FINAL.csv", sep = ",", header = TRUE)
+all_samples <- read.csv("../input_files/Popgen_db_samples_012026_filt_FINAL_fws_Eritrea_filtered.csv", sep = ",", header = TRUE)
 
 
 # Get all sites from the comprehensive database
 all_sites <- all_samples %>%
   filter(!is.na(Admin.level.1.latitude) & !is.na(Admin.level.1.longitude)) %>%
-  distinct(District, Admin.level.1.latitude, Admin.level.1.longitude) %>%
+  distinct(Admin.level.1, Admin.level.1.latitude, Admin.level.1.longitude) %>%
   rename(lon = Admin.level.1.longitude, lat = Admin.level.1.latitude)
 
 # Count samples per site in comprehensive database
 all_sample_counts <- all_samples %>%
   filter(!is.na(Admin.level.1.latitude) & !is.na(Admin.level.1.longitude)) %>%
-  count(District) %>%
+  count(Admin.level.1) %>%
   rename(sample_count = n)
 
 # Merge coordinates with sample counts
-all_sites <- left_join(all_sites, all_sample_counts, by = "District")
+all_sites <- left_join(all_sites, all_sample_counts, by = "Admin.level.1")
 
 # Mark which sites are your main 5 Ethiopian districts
 all_sites <- all_sites %>%
-  mutate(main_site = District %in% main_district_names)
+  mutate(main_site = Admin.level.1 %in% main_district_names)
 
 # Filter out invalid coordinates (Mali entries with dates)
 # Keep only numeric coordinates within valid lat/lon ranges
@@ -191,7 +256,7 @@ ggplot() +
              color = "grey50", alpha = 0.8) +
   # Main 5 Ethiopian sites highlighted with original colors
   geom_point(data = all_sites %>% filter(main_site), 
-             aes(x = lon, y = lat, size = sample_count, color = District)) +
+             aes(x = lon, y = lat, size = sample_count, color = Admin.level.1)) +
   scale_color_discrete(name = "Study sites") + 
   scale_size_continuous(
     name = "Sample count",      
@@ -207,5 +272,5 @@ ggplot() +
   )
 
 
-ggsave("figs/map_all_samples.pdf", width = 13, height = 6, dpi = 300)
+ggsave("figs/map_all_samples_Eritrea_filtered.pdf", width = 13, height = 6, dpi = 300)
 
