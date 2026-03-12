@@ -264,7 +264,8 @@ ggsave("figs/map_A675V.pdf",base_map, width = 8, height = 6, dpi = 300)
 R622I_classification <- R622I_met %>%
   filter(Country == "Ethiopia") %>%
   mutate(Classification = case_when(
-    Genotype %in% c("0/1", "1/1") ~ "R622I",
+    Genotype %in% c("1/1") ~ "R622I",
+    Genotype %in% c("0/1") ~ "WT+R622I",
     Genotype == "0/0" ~ "WT_R622I"
   )) %>%
   select(Sample, District, Year, R622I_status = Classification)
@@ -283,10 +284,15 @@ combined_classification <- R622I_classification %>%
   mutate(Final_Classification = case_when(
     R622I_status == "R622I" & A675V_status == "A675V" ~ "R622I+A675V",
     R622I_status == "R622I" ~ "R622I",
+    R622I_status == "WT+R622I" ~ "Mixed R622I + WT",
     A675V_status == "A675V" ~ "A675V",
     TRUE ~ "WT"
   )) %>%
   filter(District != "NA")
+
+combined_classification <- combined_classification %>%
+  mutate(Final_Classification = factor(Final_Classification, 
+                                       levels = c("WT", "R622I", "Mixed R622I + WT", "A675V")))
 
 # Count samples by classification
 combined_counts <- combined_classification %>%
@@ -318,21 +324,20 @@ pie_data_combined <- combined_map_data %>%
 
 # Define colors for combined classification
 colors_combined <- c(
-  "WT" = "grey", 
-  "R622I" = "#ff7f0e", 
-  "A675V" = "#1f77b4",
-  "R622I+A675V" = "#d62728"  # red for double mutant
+  "WT" = "#6cd669", 
+  "R622I" = "red",
+  "Mixed R622I + WT" = "#ff7f0e",
+  "A675V" = "yellow"
 )
-
-year_colors <- c("2013" = "#9b61ba", "2015" = "#6873b0", "2017" = "#569667", "2018" = "#c4897e", "2024" = "#d4ce7b")
 
 # Scale pie size
 pie_data_combined <- pie_data_combined %>%
-  mutate(radius = scale_pie_size(total_samples))
+  mutate(radius = scale_pie_size(total_samples)) %>%
+  mutate(Year = ifelse(Year == "2017/2018", 2017.5, as.numeric(Year)))
 
 # Create map
 base_map_combined <- ggplot() +
-  geom_sf(data = world, fill = "white", color = "white") +
+  geom_sf(data = world, fill = "gray90", color = "white") +
   geom_sf(data = ethiopia_admin1, fill = "white", color = "black", size = 0.3) +
   coord_sf(xlim = c(32, 48), ylim = c(3, 15), expand = FALSE) +
   theme_minimal() +
@@ -344,7 +349,7 @@ base_map_combined <- ggplot() +
   # Add outer ring (colored by Year)
   geom_circle(
     data = pie_data_combined,
-    aes(x0 = District.longitude, y0 = District.latitude, r = radius * 1.1, color = as.factor(Year)),
+    aes(x0 = District.longitude, y0 = District.latitude, r = radius * 1.1, color = Year),
     linewidth = 2,  # Changed to thinner
     fill = NA
   ) +
@@ -358,10 +363,15 @@ base_map_combined <- ggplot() +
     alpha = 1
   ) +
   scale_fill_manual(values = colors_combined, name = "PfK13 Genotype") +
-  scale_color_manual(values = year_colors, name = "Year") +
+  scale_color_gradient(
+    low = "#98d8ed",
+    high = "#09449c",
+    name = "Collection year",
+    breaks = c(2013, 2016, 2019, 2022, 2024)
+  ) +
   guides(
     fill = guide_legend(order = 1, override.aes = list(size = 5)),
-    color = guide_legend(order = 2)
+    color = guide_colorbar(order = 2, barwidth = 1, barheight = 8)  # horizontal bar
   )
 
 base_map_combined
@@ -427,17 +437,17 @@ pie_data <- genotype_map_data %>%
   tidyr::pivot_wider(names_from = Genotype, values_from = Percentage, values_fill = 0)
 
 # --- Define colors
-colors_genotype <- c("0/0" = "#5c965c", "0/1" = "#ff7f0e", "1/1" = "#1f77b4")
-year_colors <- c("2013" = "#9b61ba", "2015" = "#6873b0", "2017" = "grey", "2018" = "#c4897e", "2024" = "#d4ce7b")
+colors_genotype <- c("0/0" = "#6cd669", "0/1" = "#ff7f0e", "1/1" = "red")
 
 # --- Define scaling for pie radius
 scale_pie_size <- function(n) sqrt(n) * 0.09
 pie_data <- pie_data %>%
-  mutate(radius = scale_pie_size(total_samples))
+  mutate(radius = scale_pie_size(total_samples))%>%
+  mutate(Year = ifelse(Year == "2017/2018", 2017.5, as.numeric(Year)))
 
 # --- Create map
 base_map <- ggplot() +
-  geom_sf(data = world, fill = "white", color = "white") +
+  geom_sf(data = world, fill = "gray90", color = "white") +
   geom_sf(data = ethiopia_admin1, fill = "white", color = "black", size = 0.3) +
   coord_sf(xlim = c(32, 48), ylim = c(3, 15), expand = FALSE) +
   theme_minimal() +
@@ -451,7 +461,7 @@ base_map <- ggplot() +
 base_map <- base_map +
   geom_circle(
     data = pie_data,
-    aes(x0 = District.longitude, y0 = District.latitude, r = radius * 1.1, color = as.factor(Year)),  # slightly larger than pie
+    aes(x0 = District.longitude, y0 = District.latitude, r = radius * 1.1, color = Year),  # slightly larger than pie
     linewidth = 3, fill = NA
   )
 
@@ -465,11 +475,15 @@ base_map <- base_map +
     alpha = 1
   ) +
   scale_fill_manual(values = colors_genotype, name = "PfCRT K76T") +
-  scale_color_manual(values = year_colors, name = "Year") +
+  scale_color_gradient(
+    low = "#98d8ed",
+    high = "#09449c",
+    name = "Collection year",
+    breaks = c(2013, 2016, 2019, 2022, 2024)
+  ) +
   guides(
     fill = guide_legend(order = 1, override.aes = list(size = 5)),
-    color = guide_legend(order = 2),
-    size = guide_legend(order = 3)
+    color = guide_colorbar(order = 2, barwidth = 1, barheight = 8)  # horizontal bar
   )
 
 pie_legend <- data.frame(
@@ -485,21 +499,116 @@ base_map +
     data = pie_legend,
     aes(x0 = District.longitude, y0 = District.latitude, r = radius),
     fill = "grey90", color = "grey50"
-  ) +
-  geom_text(
-    data = pie_legend,
-    aes(x = District.longitude + radius + 0.3, y = District.latitude, label = total_samples),
-    hjust = 0, size = 3
-  ) +
-  annotate("text", x = 10, y = 14, label = "Sample count", fontface = "bold", size = 3)
+  ) 
 
-# --- Final map
-map<-base_map+
-  geom_text(data = districts, aes(x = District.longitude, y = District.latitude, label = District), size = 3, hjust = -0.5)
 
-map
+base_map
 
 ggsave("figs/map_K76T.pdf",base_map, width = 8, height = 6, dpi = 300)
 
 
 
+
+
+
+
+# HRP
+hrp <-read.csv("../input_files/sample_meta_with_hrp_status_updated.csv")
+met <- read.csv("../input_files/Popgen_db_samples_072025_filt_FINAL.csv")
+
+# Join hrp with metadata
+hrp_met <- left_join(hrp, met_selected, by = c("Sample" = "wgs_id"))
+
+# If site column already has district info, you may use that instead
+# Classify hrp_status
+hrp_classification <- hrp_met %>%
+  filter(Country == "Ethiopia") %>%
+  mutate(HRP_status = case_when(
+    hrp_status == "wild" ~ "WT",
+    hrp_status == "hrp2_only" ~ "hrp2 deletion",
+    hrp_status == "hrp3_only" ~ "hrp3 deletion",
+    hrp_status == "mutant" ~ "hrp2+hrp3 deletion",
+    TRUE ~ hrp_status
+  )) %>%
+  filter(!is.na(District) & District != "NA")
+
+# Count and calculate percentages
+hrp_counts <- hrp_classification %>%
+  group_by(District, HRP_status, Year) %>%
+  summarise(Count = n(), .groups = "drop")
+
+hrp_percentage <- hrp_counts %>%
+  group_by(District, Year) %>%
+  mutate(Percentage = Count / sum(Count) * 100) %>%
+  ungroup()
+
+# Join with district coordinates
+hrp_map_data <- hrp_percentage %>%
+  left_join(districts, by = "District")
+
+
+# Get sample totals
+sample_totals_hrp <- hrp_map_data %>%
+  group_by(District) %>%
+  summarise(total_samples = sum(Count), .groups = "drop")
+
+hrp_map_data <- hrp_map_data %>%
+  left_join(sample_totals_hrp, by = "District")
+
+# Pivot to wide format for scatterpie
+pie_data_hrp <- hrp_map_data %>%
+  select(District, District.longitude, District.latitude, HRP_status, Percentage, Year, total_samples) %>%
+  tidyr::pivot_wider(names_from = HRP_status, values_from = Percentage, values_fill = 0)
+
+# Define colors
+colors_hrp <- c(
+  "WT"                 = "#6cd669",
+  "hrp2 deletion"      = "#ff7f0e",
+  "hrp3 deletion"      = "yellow",
+  "hrp2+hrp3 deletion" = "red"
+)
+
+# Scale and clean year
+pie_data_hrp <- pie_data_hrp %>%
+  mutate(radius = scale_pie_size(total_samples)) %>%
+  mutate(Year = ifelse(Year == "2017/2018", 2017.5, as.numeric(Year)))
+
+# Create map
+base_map_hrp <- ggplot() +
+  geom_sf(data = world, fill = "gray90", color = "white") +
+  geom_sf(data = ethiopia_admin1, fill = "white", color = "black", size = 0.3) +
+  coord_sf(xlim = c(32, 48), ylim = c(3, 15), expand = FALSE) +
+  theme_minimal() +
+  theme(
+    axis.text = element_blank(),
+    axis.title = element_blank(),
+    panel.grid = element_blank()
+  ) +
+  geom_circle(
+  data = pie_data_hrp,
+  aes(x0 = District.longitude, y0 = District.latitude, r = radius * 1.1, color = Year),
+  linewidth = 2, fill = NA
+  ) +
+  geom_scatterpie(
+    data = pie_data_hrp,
+    aes(x = District.longitude, y = District.latitude, r = radius),
+    cols = names(colors_hrp)[names(colors_hrp) %in% names(pie_data_hrp)],
+    color = "white",
+    size = 0.2,
+    alpha = 1
+  ) +
+  scale_fill_manual(values = colors_hrp, name = "HRP deletion status") +
+  scale_color_continuous(
+    "#09449c",
+    name = "Collection year",
+    breaks = c(2024)
+  ) +
+  guides(
+    fill = guide_legend(order = 1, override.aes = list(size = 5)),
+    color = guide_colorbar(order = 2, barwidth = 1, barheight = 8)
+  )
+
+base_map_hrp
+
+
+ggsave("figs/map_hrp.pdf",base_map_hrp, width = 8, height = 6, dpi = 300)
