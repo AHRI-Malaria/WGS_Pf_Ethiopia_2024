@@ -156,8 +156,8 @@ for (category in categories) {
       cr_ihs <- rehh::calc_candidate_regions(ihs$ihs,
                                              threshold = ihs_th,
                                              pval = TRUE,
-                                             window_size = 2E4,
-                                             overlap = 1E4,
+                                             window_size = 1E4,
+                                             overlap = 0,
                                              min_n_extr_mrk = 2)
       if (nrow(cr_ihs) > 1) {
         cr_ihs$category_name <- category
@@ -201,8 +201,8 @@ for (category in categories) {
             cr_rsb <- rehh::calc_candidate_regions(rsb,
                                                    threshold = rsb_th,
                                                    pval = TRUE,
-                                                   window_size = 2E4,
-                                                   overlap = 1E4,
+                                                   window_size = 1E4,
+                                                   overlap = 0,
                                                    min_n_extr_mrk = 2)
             if (nrow(cr_rsb) > 1) {
               cr_rsb$category_name <- paste0(sort(c(category, contr_category)), collapse = "|")
@@ -234,8 +234,8 @@ for (category in categories) {
             cr_xpehh <- rehh::calc_candidate_regions(xpehh,
                                                      threshold = xpehh_th ,
                                                      pval = TRUE,
-                                                     window_size = 2E4,
-                                                     overlap = 1E4,
+                                                     window_size = 1E4,
+                                                     overlap = 0,
                                                      min_n_extr_mrk = 2)
             if (nrow(cr_xpehh) > 1) {
               cr_xpehh$category_name <- paste0(sort(c(category, contr_category)), collapse = "|")
