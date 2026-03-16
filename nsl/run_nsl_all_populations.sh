@@ -206,5 +206,32 @@ write.csv(out_ann, 'NSL_allchromosomes_norm_merged_${PREFIX}_annotated.csv', row
 
 done < "$POPULATIONS_FILE"
 
+# ------------------------------------------------------------------
+# Merge all population annotated outputs into one CSV
+# ------------------------------------------------------------------
+echo ""
+echo "=========================================="
+echo "Merging all population outputs..."
+echo "=========================================="
+
+cd "$DATA_DIR"
+MERGED_ALL="$DATA_DIR/NSL_allchromosomes_norm_merged_ALL_populations_annotated.csv"
+echo "Population,File,Chrom,Pos,FreqBin,IHH1,IHH0,Raw_nSL,Norm_nSL,CritFlag,ref,alt,Gene_name" > "$MERGED_ALL"
+
+while IFS= read -r POP || [[ -n "$POP" ]]; do
+    [[ -z "$POP" || "$POP" == \#* ]] && continue
+    CSV="$DATA_DIR/${POP}_only/NSL_allchromosomes_norm_merged_${POP}_only_annotated.csv"
+    if [[ ! -f "$CSV" ]]; then
+        echo "  WARNING: output not found for $POP, skipping: $CSV"
+        continue
+    fi
+    tail -n +2 "$CSV" | awk -v pop="$POP" 'BEGIN{FS=","; OFS=","} {print pop, $0}' >> "$MERGED_ALL"
+    echo "  Added: $POP"
+done < "$POPULATIONS_FILE"
+
+N=$(tail -n +2 "$MERGED_ALL" | wc -l)
+echo "Done. Total rows: $N"
+echo "Output: $MERGED_ALL"
+
 echo ""
 echo "All populations complete."

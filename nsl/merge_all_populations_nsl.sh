@@ -8,6 +8,7 @@
 # Output (default): NSL_allchromosomes_norm_merged_ALL_populations_annotated.csv
 
 DATA_DIR="${DATA_DIR:-$PWD}"                 # working data directory (default: current dir)
+SUFFIX="${SUFFIX:-_only}"                    # output dir/file suffix; override for test runs
 POPULATIONS_FILE="${1:-$DATA_DIR/populations.txt}"
 OUT="${2:-$DATA_DIR/NSL_allchromosomes_norm_merged_ALL_populations_annotated.csv}"
 
@@ -26,7 +27,7 @@ while IFS= read -r POP || [[ -n "$POP" ]]; do
     # Skip empty lines and comments
     [[ -z "$POP" || "$POP" == \#* ]] && continue
 
-    CSV="$DATA_DIR/${POP}_only/NSL_allchromosomes_norm_merged_${POP}_only_annotated.csv"
+    CSV="$DATA_DIR/${POP}${SUFFIX}/NSL_allchromosomes_norm_merged_${POP}${SUFFIX}_annotated.csv"
 
     if [[ ! -f "$CSV" ]]; then
         echo "  WARNING: output not found for $POP, skipping: $CSV"

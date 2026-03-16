@@ -17,6 +17,7 @@ source /mnt/storage13/leen/miniforge3/etc/profile.d/conda.sh
 conda activate fastq2matrix
 
 INPUT_VCF="/mnt/storage13/leen/popgen_ethiopia_WGS/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen.filt.csq.bi.GT.miss0.2.vqslod.filt.snps.vcf.gz"
+NEW_HYPER_VAR_CSV="/mnt/storage13/leen/popgen_ethiopia_WGS/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen/nsl/hypervarregions_032026.csv"
 
 #Remove India, Myanmar, Thailand
 bcftools view -S ^"$EHH_DIR/India_Thailand_Myanmar.txt" "$INPUT_VCF" -q 0.01 \
@@ -26,28 +27,39 @@ bcftools view -S ^"$EHH_DIR/India_Thailand_Myanmar.txt" "$INPUT_VCF" -q 0.01 \
 bcftools view 012026_pf_mgen_ug_india_eritrea_ethiopia_popgen.filt.csq.bi.GT.miss0.2.sea.rem.vqslod.filt.snps.vcf.gz \
   -q 0.01 -o 012026_pf_mgen_ug_india_eritrea_ethiopia_popgen.filt.csq.bi.GT.miss0.2.sea.rem.MAF0.01.vqslod.filt.snps.vcf.gz -O z
 
-#Remove hypervariable regions
-bcftools view --targets-file ^"$EHH_DIR/hyper_variable_regions.txt" \
-  012026_pf_mgen_ug_india_eritrea_ethiopia_popgen.filt.csq.bi.GT.miss0.2.sea.rem.MAF0.01.vqslod.filt.snps.vcf.gz \
-  -o 012026_pf_mgen_ug_india_eritrea_ethiopia_popgen.filt.csq.bi.GT.miss0.2.sea.rem.MAF0.01.hypervarrem.vqslod.filt.snps.vcf.gz -O z
-
-#Remove top 10% Tajima's D windows
-vcftools --gzvcf 012026_pf_mgen_ug_india_eritrea_ethiopia_popgen.filt.csq.bi.GT.miss0.2.sea.rem.MAF0.01.hypervarrem.vqslod.filt.snps.vcf.gz \
+# Calculate Tajima's D on pre-exclusion VCF (after MAF filtering), then build
+# combined exclusion BED from:
+#   (a) hypervarregions_032026.csv regions
+#   (b) top 10% of Tajima's D windows
+# Apply both exclusions together in a single bcftools step.
+vcftools --gzvcf 012026_pf_mgen_ug_india_eritrea_ethiopia_popgen.filt.csq.bi.GT.miss0.2.sea.rem.MAF0.01.vqslod.filt.snps.vcf.gz \
   --out tajimasd --TajimaD 10000
 
-tail -n +2 tajimasd.Tajima.D | sort -k4 -rn | head -10 | awk '{print $1"\t"$2"\t"$2+10000}' > top10_tajima_windows.bed
+tail -n +2 tajimasd.Tajima.D | sort -k4 -rn > tajimasd_sorted.txt
+n_windows=$(wc -l < tajimasd_sorted.txt)
+top10pct=$(( (n_windows + 9) / 10 ))
+echo "Tajima's D: $n_windows windows total, excluding top $top10pct (10%)"
+head -n "$top10pct" tajimasd_sorted.txt \
+  | awk '{print $1"\t"$2"\t"$2+10000}' > top10pct_tajima_windows.bed
+
+tail -n +2 "$NEW_HYPER_VAR_CSV" | cut -f1-3 > hypervar_regions_032026.bed
+
+cat hypervar_regions_032026.bed top10pct_tajima_windows.bed \
+  | sort -k1,1 -k2,2n > combined_exclusion_032026.bed
+echo "Combined exclusion BED: $(wc -l < combined_exclusion_032026.bed) regions"
+
+echo "SNPs before exclusion:"
+bcftools view -H 012026_pf_mgen_ug_india_eritrea_ethiopia_popgen.filt.csq.bi.GT.miss0.2.sea.rem.MAF0.01.vqslod.filt.snps.vcf.gz | wc -l
 
 bcftools view \
-  --targets-file ^top10_tajima_windows.bed \
-  012026_pf_mgen_ug_india_eritrea_ethiopia_popgen.filt.csq.bi.GT.miss0.2.sea.rem.MAF0.01.hypervarrem.vqslod.filt.snps.vcf.gz \
+  --targets-file ^combined_exclusion_032026.bed \
+  012026_pf_mgen_ug_india_eritrea_ethiopia_popgen.filt.csq.bi.GT.miss0.2.sea.rem.MAF0.01.vqslod.filt.snps.vcf.gz \
   -o 012026_pf_mgen_ug_india_eritrea_ethiopia_popgen.filt.csq.bi.GT.miss0.2.sea.rem.MAF0.01.hypervarrem.vqslod.filt.snps.tajrem.vcf.gz \
   -O z
 
 bcftools index 012026_pf_mgen_ug_india_eritrea_ethiopia_popgen.filt.csq.bi.GT.miss0.2.sea.rem.MAF0.01.hypervarrem.vqslod.filt.snps.tajrem.vcf.gz
 
-echo "SNPs before Tajima's D filtering:"
-bcftools view -H 012026_pf_mgen_ug_india_eritrea_ethiopia_popgen.filt.csq.bi.GT.miss0.2.sea.rem.MAF0.01.hypervarrem.vqslod.filt.snps.vcf.gz | wc -l
-echo "SNPs after Tajima's D filtering:"
+echo "SNPs after exclusion (hypervar + top 10% Tajima's D):"
 bcftools view -H 012026_pf_mgen_ug_india_eritrea_ethiopia_popgen.filt.csq.bi.GT.miss0.2.sea.rem.MAF0.01.hypervarrem.vqslod.filt.snps.tajrem.vcf.gz | wc -l
 
 #Convert to binary matrix

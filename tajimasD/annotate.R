@@ -18,7 +18,9 @@ analyses <- list(
   tajimasD_by_country    = "tajimasD_annotated_by_country",
   tajimasD_by_region     = "tajimasD_annotated_by_region",
   tajimasD_old_vs_new    = "tajimasD_annotated_old_vs_new",
-  tajimasD_north_vs_rest = "tajimasD_annotated_north_vs_rest"
+  tajimasD_north_vs_rest = "tajimasD_annotated_north_vs_rest",
+  tajimasD_r622i         = "tajimasD_annotated_r622i",
+  tajimasD_hrp_status    = "tajimasD_annotated_hrp_status"
 )
 
 # ==============================================================================
@@ -88,15 +90,31 @@ for (tajima_dir in names(analyses)) {
     extreme <- tajima %>% filter(TajimaD <= q_low)
     message("  Extreme windows: ", nrow(extreme))
 
-    regions   <- extreme %>% dplyr::select(chr, start, end) %>% distinct()
-    annotated <- annotate_regions(regions, annotation)
+    # Annotate all windows
+    all_regions   <- tajima %>% dplyr::select(chr, start, end) %>% distinct()
+    all_annotated <- annotate_regions(all_regions, annotation)
 
-    result <- extreme %>%
-      left_join(annotated, by = c("chr", "start", "end")) %>%
+    result_all <- tajima %>%
+      left_join(all_annotated, by = c("chr", "start", "end")) %>%
       dplyr::select(chr, start, end, N_SNPS, TajimaD, genes, products) %>%
       mutate(group = group)
 
-    write.table(result,
+    write.table(result_all,
+      file.path(outdir, paste0("tajimasd_", group, "_10kb_annotated.tsv")),
+      sep = "\t", col.names = TRUE, row.names = FALSE, quote = FALSE)
+
+    message("  Written: tajimasd_", group, "_10kb_annotated.tsv")
+
+    # Annotate filtered (bottom quantile) windows
+    extreme_regions   <- extreme %>% dplyr::select(chr, start, end) %>% distinct()
+    extreme_annotated <- annotate_regions(extreme_regions, annotation)
+
+    result_extreme <- extreme %>%
+      left_join(extreme_annotated, by = c("chr", "start", "end")) %>%
+      dplyr::select(chr, start, end, N_SNPS, TajimaD, genes, products) %>%
+      mutate(group = group)
+
+    write.table(result_extreme,
       file.path(outdir, paste0("tajimasd_", group, "_10kb_annotated_q", th_quantile, ".tsv")),
       sep = "\t", col.names = TRUE, row.names = FALSE, quote = FALSE)
 
