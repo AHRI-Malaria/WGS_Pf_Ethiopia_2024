@@ -62,7 +62,7 @@ while IFS= read -r POP || [[ -n "$POP" ]]; do
     POP_DIR="$DATA_DIR/${POP}_only_test032026"
     PREFIX="${POP}_only_test032026"
 
-    mkdir -p "$POP_DIR/vcfs_by_chromosome/imputed"
+    # mkdir -p "$POP_DIR/vcfs_by_chromosome/imputed"  # imputation disabled
     mkdir -p "$POP_DIR/selscan_output"
 
     # ------------------------------------------------------------------
@@ -137,10 +137,10 @@ while IFS= read -r POP || [[ -n "$POP" ]]; do
     echo "  SNPs after exclusion: $n_snps"
 
     # ------------------------------------------------------------------
-    # 5. Exclude sites with > 10% missingness
+    # 5. Exclude sites with any missingness
     # ------------------------------------------------------------------
-    echo "[5/8] Filtering by missingness..."
-    bcftools view -e 'F_MISSING > 0.1' \
+    echo "[5/8] Filtering by missingness (removing any missing data)..."
+    bcftools view -e 'F_MISSING > 0' \
         "${PREFIX}.filt.csq.bi.GT.miss0.2.vqslod.filt.hypervarrem.snps.filtered.tajrem.vcf.gz" \
         -Oz -o "${PREFIX}.filt.csq.bi.GT.miss0.2.vqslod.filt.hypervarrem.snps.filtered.tajrem.filtered.vcf.gz"
     bcftools index "${PREFIX}.filt.csq.bi.GT.miss0.2.vqslod.filt.hypervarrem.snps.filtered.tajrem.filtered.vcf.gz"
@@ -152,6 +152,8 @@ while IFS= read -r POP || [[ -n "$POP" ]]; do
     # 6. Split VCF by chromosome
     # ------------------------------------------------------------------
     echo "[6/8] Splitting by chromosome..."
+    mkdir -p vcfs_by_chromosome
+    rm -f vcfs_by_chromosome/*.phased.vcf.gz vcfs_by_chromosome/*.phased.vcf.gz.csi
     for chr in Pf3D7_01_v3 Pf3D7_02_v3 Pf3D7_03_v3 Pf3D7_04_v3 Pf3D7_05_v3 \
                Pf3D7_06_v3 Pf3D7_07_v3 Pf3D7_08_v3 Pf3D7_09_v3 Pf3D7_10_v3 \
                Pf3D7_11_v3 Pf3D7_12_v3 Pf3D7_13_v3 Pf3D7_14_v3; do
@@ -162,37 +164,49 @@ while IFS= read -r POP || [[ -n "$POP" ]]; do
     done
 
     # ------------------------------------------------------------------
-    # 7. Impute with Beagle, then run selscan nSL and normalise
+    # 7. Run selscan nSL and normalise (imputation disabled)
     # ------------------------------------------------------------------
-    echo "[7/8] Imputing and running nSL..."
-    conda activate imputation
-    for chr in Pf3D7_0{1..9}_v3 Pf3D7_{10..14}_v3; do
-        java -Xmx8g -jar /mnt/storage13/leen/miniforge3/envs/imputation/share/beagle-5.5_27Feb25.75f-0/beagle.jar \
-            gt="vcfs_by_chromosome/${chr}.vcf.gz" \
-            out="vcfs_by_chromosome/imputed/${chr}.imputed" \
-            chrom="${chr}" \
-            nthreads=4 \
-            iterations=20 \
-            ne=1000000
-        bcftools index "vcfs_by_chromosome/imputed/${chr}.imputed.vcf.gz"
+    echo "[7/8] Running nSL (no imputation)..."
+    # Clear any stale selscan output from previous runs to prevent norm from appending
+    rm -f selscan_output/*.nsl.out selscan_output/*.norm
+    # --- Imputation with Beagle disabled ---
+    # conda activate imputation
+    # for chr in Pf3D7_0{1..9}_v3 Pf3D7_{10..14}_v3; do
+    #     java -Xmx8g -jar /mnt/storage13/leen/miniforge3/envs/imputation/share/beagle-5.5_27Feb25.75f-0/beagle.jar \
+    #         gt="vcfs_by_chromosome/${chr}.vcf.gz" \
+    #         out="vcfs_by_chromosome/imputed/${chr}.imputed" \
+    #         chrom="${chr}" \
+    #         nthreads=4 \
+    #         iterations=20 \
+    #         ne=1000000
+    #     bcftools index "vcfs_by_chromosome/imputed/${chr}.imputed.vcf.gz"
+    # done
+    # --- End imputation ---
+
+    for VCF in vcfs_by_chromosome/Pf3D7_*_v3.vcf.gz; do
+        CHR=$(basename "$VCF" .vcf.gz)
+        bcftools view "$VCF" \
+            | awk 'BEGIN{OFS="\t"} /^#/{print; next} {for(i=10;i<=NF;i++) gsub("/","|",$i); print}' \
+            | bgzip > "vcfs_by_chromosome/${CHR}.phased.vcf.gz"
+        bcftools index "vcfs_by_chromosome/${CHR}.phased.vcf.gz"
     done
 
     conda activate selscan
 
-    for VCF in vcfs_by_chromosome/imputed/*.imputed.vcf.gz; do
-        CHR=$(basename "$VCF" .vcf.gz)
-        echo "  selscan: $CHR"
-        selscan --nsl --vcf "$VCF" --unphased --maf 0.01 --out "selscan_output/NSL_${CHR}"
+    for VCF in vcfs_by_chromosome/*.phased.vcf.gz; do
+    CHR=$(basename "$VCF" .phased.vcf.gz)
+    selscan --nsl --vcf "$VCF" --maf 0.01 --out "selscan_output/NSL_${CHR}"
     done
 
-    for FILE in selscan_output/NSL_Pf3D7*.imputed.nsl.out; do
+
+    for FILE in selscan_output/NSL_Pf3D7*.nsl.out; do
         echo "  normalising: $(basename "$FILE")"
         norm --nsl --bins 100 --files "$FILE"
     done
 
     MERGED_FILE="NSL_allchromosomes_norm_merged_${PREFIX}.txt"
     echo -e "File\tChrom\tPos\tFreqBin\tIHH1\tIHH0\tRaw_nSL\tNorm_nSL\tCritFlag" > "$MERGED_FILE"
-    for FILE in selscan_output/NSL_Pf3D7*imputed*.norm; do
+    for FILE in selscan_output/NSL_Pf3D7*.norm; do
         BASENAME=$(basename "$FILE")
         awk -v f="$BASENAME" '{print f "\t" $0}' "$FILE" >> "$MERGED_FILE"
     done
