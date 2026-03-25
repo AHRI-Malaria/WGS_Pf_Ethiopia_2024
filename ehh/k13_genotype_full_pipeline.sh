@@ -92,8 +92,8 @@ meta = pd.read_csv("$EHH_DIR/Popgen_db_samples_012026_filt_FINAL_fws.csv", sep="
 r622i = pd.read_csv("$R622I_CSV")
 r622i = r622i[r622i["Genotype"].isin(["0/0", "1/1"])]
 r622i["r622i_group"] = r622i["Genotype"].map({"0/0": "r622i_wt", "1/1": "r622i_mut"})
-r622i_uniq = r622i[["Sample", "r622i_group"]].drop_duplicates("Sample")
-merged = meta.merge(r622i_uniq, left_on="wgs_id", right_on="Sample", how="left").drop(columns="Sample")
+r622i_uniq = r622i[["Sample", "r622i_group"]].drop_duplicates("Sample").rename(columns={"Sample": "wgs_id"})
+merged = meta.merge(r622i_uniq, on="wgs_id", how="left")
 merged.to_csv("metadata_r622i_group.tsv", sep="\t", index=False)
 print(merged["r622i_group"].value_counts().to_string())
 PYEOF
