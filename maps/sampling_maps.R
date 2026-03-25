@@ -180,7 +180,7 @@ ethiopia_admin1_sf <- st_as_sf(ethiopia_admin1)
 main_district_names <- c("Mizan", "Gambella", "Gondar", "Arba Minch", "Metehera Fentale")
 
 # Load the comprehensive database
-all_samples <- read.csv("../input_files/Popgen_db_samples_072025_filt_FINAL.csv", sep = ",", header = TRUE)
+all_samples <- read.csv("../input_files/Popgen_db_samples_012026_filt_FINAL_fws.csv", sep = ",", header = TRUE)
 all_samples <- read.csv("../input_files/Popgen_db_samples_012026_filt_FINAL_fws_Eritrea_filtered.csv", sep = ",", header = TRUE)
 
 
@@ -272,5 +272,5 @@ ggplot() +
   )
 
 
-ggsave("figs/map_all_samples_Eritrea_filtered.pdf", width = 13, height = 6, dpi = 300)
+ggsave("figs/map_all_samples.pdf", width = 13, height = 6, dpi = 300)
 
