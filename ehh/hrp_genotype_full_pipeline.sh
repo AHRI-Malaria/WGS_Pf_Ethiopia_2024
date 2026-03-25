@@ -93,8 +93,8 @@ meta = pd.read_csv("$EHH_DIR/Popgen_db_samples_012026_filt_FINAL_fws.csv", sep="
 hrp = pd.read_csv("$HRP_META")
 hrp_map = {"wild": "hrp_wild", "mutant": "hrp_double_deleted", "hrp3_only": "hrp3_only"}
 hrp["hrp_group"] = hrp["hrp_status"].map(hrp_map)
-hrp_uniq = hrp[["Sample", "hrp_group"]].dropna(subset=["hrp_group"]).drop_duplicates("Sample")
-merged = meta.merge(hrp_uniq, left_on="wgs_id", right_on="Sample", how="left").drop(columns="Sample")
+hrp_uniq = hrp[["Sample", "hrp_group"]].dropna(subset=["hrp_group"]).drop_duplicates("Sample").rename(columns={"Sample": "wgs_id"})
+merged = meta.merge(hrp_uniq, on="wgs_id", how="left")
 merged.to_csv("metadata_hrp_group.tsv", sep="\t", index=False)
 print(merged["hrp_group"].value_counts().to_string())
 PYEOF
