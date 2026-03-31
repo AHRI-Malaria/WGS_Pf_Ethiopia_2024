@@ -1,0 +1,35 @@
+Sample,Phenotype,Day,Site,Fastq1,Fastq2,fws,post_coi_mean
+AC004-D0,Treatment failure,0,Gambella,AC004-D0_S1_R1_001.fastq.gz,AC004-D0_S1_R2_001.fastq.gz,0.977,1
+AC004-D28,Treatment failure,28,Gambella,AC004-TF_S10_R1_001.fastq.gz,AC004-TF_S10_R2_001.fastq.gz,0.964,1
+AC084-D0,Treatment failure,0,Gambella,AC084-D0_S3_R1_001.fastq.gz,AC084-D0_S3_R2_001.fastq.gz,0.726,2
+AC084-D21,Treatment failure,21,Gambella,AC084-TF_S12_R1_001.fastq.gz,AC084-TF_S12_R2_001.fastq.gz,0.987,1
+AC091-D0,Treatment failure,0,Gambella,AC091-D0_S4_R1_001.fastq.gz,AC091-D0_S4_R2_001.fastq.gz,0.766,2
+AC091-D21,Treatment failure,21,Gambella,AC091-D21_merged_1.fastq.gz,AC091-D21_merged_2.fastq.gz,0.989,1
+GM027-D0,Treatment failure,0,Gondar,NG-A4488_GM027_D0_libLAN2243_1.fastq.gz,NG-A4488_GM027_D0_libLAN2243_2.fastq.gz,0.927,1
+GM027-D21,Treatment failure,21,Gondar,NG-A4488_GM027_D21_libLAN2250_1.fastq.gz,NG-A4488_GM027_D21_libLAN2250_2.fastq.gz,0.951,1
+GM046-D0,Treatment failure,0,Gondar,GM046-D0_S5_R1_001.fastq.gz,GM046-D0_S5_R2_001.fastq.gz,0.941,1
+GM046-D28,Treatment failure,28,Gondar,GM046-TF_S14_R1_001.fastq.gz,GM046-TF_S14_R2_001.fastq.gz,0.957,1
+GM070-D0,Treatment failure,0,Gondar,GM070-D0_S6_R1_001.fastq.gz,GM070-D0_S6_R2_001.fastq.gz,0.95,1.12
+GM070-D28,Treatment failure,28,Gondar,GM070-TF_S15_R1_001.fastq.gz,GM070-TF_S15_R2_001.fastq.gz,0.957,1
+GM076-D0,Treatment failure,0,Gondar,NG-A4488_GM076_D0_libLAN2245_1.fastq.gz,NG-A4488_GM076_D0_libLAN2245_2.fastq.gz,0.95,3.03
+GM076-D21,Treatment failure,21,Gondar,NG-A4488_GM076_D21_libLAN2252_1.fastq.gz,NG-A4488_GM076_D21_libLAN2252_2.fastq.gz,0.745,2
+MM013-D0,Treatment failure,0,Mizan,NG-A4488_MM013_D0_libLAN2246_1.fastq.gz,NG-A4488_MM013_D0_libLAN2246_2.fastq.gz,0.775,1.01
+MM013-D21,Treatment failure,21,Mizan,NG-A4488_MM013_D21_libLAN2253_1.fastq.gz,NG-A4488_MM013_D21_libLAN2253_2.fastq.gz,0.973,1
+MM033-D0,Treatment failure,0,Mizan,MM033-D0_S7_R1_001.fastq.gz,MM033-D0_S7_R2_001.fastq.gz,0.966,1
+MM033-D21,Treatment failure,21,Mizan,MM033-TF_S16_R1_001.fastq.gz,MM033-TF_S16_R2_001.fastq.gz,0.982,1.01
+MM037-D0,Treatment failure,0,Mizan,MM037-D0_S8_R1_001.fastq.gz,MM037-D0_S8_R2_001.fastq.gz,0.917,2.26
+MM037-D21,Treatment failure,21,Mizan,MM037-TF_S25_R1_001.fastq.gz,MM037-TF_S25_R2_001.fastq.gz,0.864,2
+MM047-D0,Treatment failure,0,Mizan,MM047-D0_S9_R1_001.fastq.gz,MM047-D0_S9_R2_001.fastq.gz,0.97,1
+MM047-D21,Treatment failure,21,Mizan,MM047-TF_S26_R1_001.fastq.gz,MM047-TF_S26_R2_001.fastq.gz,0.97,1.04
+AC002-D0,Treatment Success,0,Gambella,AC002-D0_S27_R1_001.fastq.gz,AC002-D0_S27_R2_001.fastq.gz,0.974,1
+AC011-D0,Treatment Success,0,Gambella,AC011-D0_S28_R1_001.fastq.gz,AC011-D0_S28_R2_001.fastq.gz,0.626,3
+AC034-D0,Treatment Success,0,Gambella,AC034-D0_S29_R1_001.fastq.gz,AC034-D0_S29_R2_001.fastq.gz,0.967,1
+GM002-D0,Treatment Success,0,Gondar,GM002-D0_S31_R1_001.fastq.gz,GM002-D0_S31_R2_001.fastq.gz,0.977,1
+GM068-D0,Treatment Success,0,Gondar,GM068-D0_S32_R1_001.fastq.gz,GM068-D0_S32_R2_001.fastq.gz,0.58,3.04
+GM025-D0,Treatment Success,0,Gondar,NG-A4488_GM025_D0_libLAN2256_1.fastq.gz,NG-A4488_GM025_D0_libLAN2256_2.fastq.gz,0.942,1
+GM065-D0,Treatment Success,0,Gondar,NG-A4488_GM065_D0_libLAN2257_1.fastq.gz,NG-A4488_GM065_D0_libLAN2257_2.fastq.gz,0.956,1
+MM042-D0,Treatment Success,0,Mizan,MM042-D0_S19_R1_001.fastq.gz,MM042-D0_S19_R2_001.fastq.gz,0.982,1
+MM011-D0,Treatment Success,0,Mizan,NG-A4488_MM011_D0_libLAN2259_1.fastq.gz,NG-A4488_MM011_D0_libLAN2259_2.fastq.gz,0.954,1
+MM051-D0,Treatment Success,0,Mizan,NG-A4488_MM051_D0_libLAN2260_1.fastq.gz,NG-A4488_MM051_D0_libLAN2260_2.fastq.gz,0.961,1.01
+MM068-D0,Treatment Success,0,Mizan,NG-A4488_MM068_D0_libLAN2261_1.fastq.gz,NG-A4488_MM068_D0_libLAN2261_2.fastq.gz,0.97,1.01
+,,,,,,,
