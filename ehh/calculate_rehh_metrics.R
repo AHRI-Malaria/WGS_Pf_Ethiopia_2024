@@ -225,20 +225,25 @@ for (category in categories) {
                             hcolor = "purple")
             saveRDS(gg, file.path(workdir, paste0("plot_", category, ".", contr_category, ".XPEHH.rds")))
 
-            high_xpehh <- xpehhA %>% filter(LOGPVALUE >= xpehh_th)
+            # Keep only SNPs where the focal population (category) has extended
+            # haplotypes (XPEHH > 0). This ensures pop1 in category_name is always
+            # the population under positive selection.
+            xpehh_pos <- xpehh %>% filter(XPEHH > 0)
+
+            high_xpehh <- xpehhA %>% filter(LOGPVALUE >= xpehh_th, XPEHH > 0)
             if (nrow(high_xpehh) > 1) {
-              high_xpehh$category_name <- paste0(sort(c(category, contr_category)), collapse = "|")
+              high_xpehh$category_name <- paste0(c(category, contr_category), collapse = "|")
               high_xpehh_all <- rbind(high_xpehh_all, high_xpehh)
             }
 
-            cr_xpehh <- rehh::calc_candidate_regions(xpehh,
-                                                     threshold = xpehh_th ,
+            cr_xpehh <- rehh::calc_candidate_regions(xpehh_pos,
+                                                     threshold = xpehh_th,
                                                      pval = TRUE,
                                                      window_size = 1E4,
                                                      overlap = 0,
                                                      min_n_extr_mrk = 2)
             if (nrow(cr_xpehh) > 1) {
-              cr_xpehh$category_name <- paste0(sort(c(category, contr_category)), collapse = "|")
+              cr_xpehh$category_name <- paste0(c(category, contr_category), collapse = "|")
               cr_xpehh_all <- rbind(cr_xpehh_all, cr_xpehh)
             }
           }
