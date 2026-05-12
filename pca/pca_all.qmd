@@ -1,0 +1,1520 @@
+# Africa only
+
+fws >= 0.95 monoclonal filter, hmmIBD, single linkage clustering at IBD >= 0.95, retain one random representative per cluster
+
+```{r}
+library(dplyr)
+library(tidyr)
+library(readr)
+metadata <- read.csv(
+  "/mnt/storage13/leen/popgen_ethiopia_WGS/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen/pca/metadata.csv",
+  sep = ","
+)%>%
+  select(wgs_id, Country, fws)%>%
+  mutate(Sample = gsub("_S[0-9]+$", "", wgs_id))  %>% 
+  mutate(Sample = gsub("-D0", "_D0", Sample)) %>% 
+  mutate(Sample = gsub("NG-A4488_", "", Sample)) %>% 
+  mutate(Sample = gsub("_libLAN[0-9]+", "", Sample))%>%
+  select(Sample,Country,fws)%>%
+  mutate(type = "sample")
+readr::write_tsv(metadata , "/mnt/storage13/leen/popgen_ethiopia_WGS/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen/pca/removal_similar_samples_africa_monoclonal/metadata_edit.csv")
+```
+
+```{bash}
+conda activate fastq2matrix
+
+# Filter out multiclonal samples
+awk -F',' 'NR==1 {for(i=1;i<=NF;i++) {if($i=="fws") fws_col=i; if($i=="wgs_id") id_col=i}} NR>1 && $fws_col >= 0.95 {print $id_col}' ../metadata.csv > samples_0.95.csv
+
+bcftools view -S samples_0.95.csv -o allsamples_fws_0.95.vcf.gz -O z /mnt/storage13/leen/popgen_ethiopia_WGS/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen.filt.csq.bi.GT.miss0.2.vqslod.filt.snps.vcf.gz
+
+# Index the output
+bcftools index allsamples_fws_0.95.vcf.gz
+
+# African samples only
+bcftools view -S africa_only_samples.txt allsamples_fws_0.95.vcf.gz -Oz --force-samples -o africa_only_fws_0.95.vcf.gz
+
+bcftools query -l africa_only_fws_0.95.vcf.gz | wc -l # 639
+
+```
+
+```{bash}
+
+# Conversion to matrix
+python ~/software/fastq2matrix/scripts/vcf2matrix.py \
+    --vcf africa_only_fws_0.95.vcf.gz \
+    --no-iupacgt \
+    --na NA \
+    --threads 32
+
+```
+```{bash}
+# Calculate IBD
+conda activate ibd
+
+Rscript ~/software/malaria-hub/ibd/run_hmmIBD_per_category.R \
+-d . \
+-b africa_only_fws_0.95.mat.bin \
+-m /mnt/storage13/leen/popgen_ethiopia_WGS/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen/pca/removal_similar_samples_africa_monoclonal/metadata_edit.csv \
+-c sample \
+--label_category type \
+--label_fws fws \
+--fws_th 0.95 \
+--label_id Sample \
+--maf 0.01 \
+--na_char NA \
+--remove_chr Pf3D7_API_v3,Pf_M76611
+
+ ~/software/hmmIBD/hmmIBD -i hmmIBD_sample_maf0.01.txt -o hmmIBD_sample_maf0.01.out 
+
+```
+```{r}
+library(dplyr)
+library(tidyr)
+library(readr)
+metadata <- read.csv(
+  "/mnt/storage13/leen/popgen_ethiopia_WGS/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen/pca/metadata.csv",
+  sep = ","
+)%>%
+  select(wgs_id, Country, fws)%>%
+  mutate(Sample = gsub("_S[0-9]+$", "", wgs_id))  %>% 
+  mutate(Sample = gsub("-D0", "_D0", Sample)) %>% 
+  mutate(Sample = gsub("NG-A4488_", "", Sample)) %>% 
+  mutate(Sample = gsub("_libLAN[0-9]+", "", Sample))%>%
+  select(Sample,Country,fws)%>%
+  mutate(type = "sample")
+readr::write_tsv(metadata , "/mnt/storage13/leen/popgen_ethiopia_WGS/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen/pca/removal_similar_samples_africa_monoclonal/metadata_edit.csv")
+
+# Single linkage clustering of samples with IBD >= 0.95, retain one random
+# representative per cluster.
+library(igraph)
+
+all_hmmibd_fract <- read.table("/mnt/storage13/leen/popgen_ethiopia_WGS/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen/pca/removal_similar_samples_africa_monoclonal/hmmIBD_sample_maf0.01.out.hmm_fract.txt", header = TRUE, stringsAsFactors = FALSE)
+
+high_ibd <- all_hmmibd_fract %>%
+    filter(fract_sites_IBD >= 0.95)
+
+# Build undirected graph: nodes = samples, edges = high-IBD pairs.
+# Connected components are the single linkage clusters.
+g <- graph_from_data_frame(
+    high_ibd %>% select(sample1, sample2),
+    directed = FALSE
+)
+comps <- components(g)
+
+clusters_df <- tibble(
+    Sample  = names(comps$membership),
+    cluster = comps$membership
+)
+
+# Random representative per cluster (seeded for reproducibility)
+set.seed(42)
+representatives <- clusters_df %>%
+    group_by(cluster) %>%
+    slice_sample(n = 1) %>%
+    ungroup() %>%
+    pull(Sample)
+
+# Samples not in any high-IBD pair are all retained
+all_in_pairs <- unique(c(high_ibd$sample1, high_ibd$sample2))
+singletons   <- setdiff(metadata$Sample, all_in_pairs)
+
+samples_to_keep <- c(singletons, representatives)
+samples_to_drop <- setdiff(all_in_pairs, representatives)
+
+remaining_samples <- metadata %>%
+    filter(Sample %in% samples_to_keep)
+
+# Diagnostics
+message("Total samples: ", nrow(metadata))
+message("High-IBD pairs: ", nrow(high_ibd))
+message("Clusters: ", comps$no)
+message("Cluster size distribution:")
+print(table(comps$csize))
+message("Samples retained: ", length(samples_to_keep),
+        " (", length(singletons), " singletons + ",
+        length(representatives), " cluster representatives)")
+message("Samples dropped: ", length(samples_to_drop))
+
+readr::write_tsv(
+    remaining_samples,
+    "/mnt/storage13/leen/popgen_ethiopia_WGS/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen/pca/removal_similar_samples_africa_monoclonal/metadata_remaining_cluster_dedup.tsv"
+)
+
+readr::write_tsv(
+    tibble(Sample = samples_to_drop),
+    "/mnt/storage13/leen/popgen_ethiopia_WGS/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen/pca/removal_similar_samples_africa_monoclonal/cluster_dedup_samples_to_remove.tsv",
+    col_names = FALSE
+)
+
+readr::write_tsv(
+    clusters_df %>% arrange(cluster, Sample),
+    "/mnt/storage13/leen/popgen_ethiopia_WGS/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen/pca/removal_similar_samples_africa_monoclonal/ibd_clusters.tsv"
+)
+
+```
+
+```{bash}
+conda activate fastq2matrix
+
+wc -l /mnt/storage13/leen/popgen_ethiopia_WGS/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen/pca/removal_similar_samples_africa_monoclonal/cluster_dedup_samples_to_remove.tsv
+
+# remove non-representative cluster members from the vcf and redo the pca
+bcftools view -S ^cluster_dedup_samples_to_remove.tsv africa_only_fws_0.95.vcf.gz -Oz -o africa_only_fws_0.95_cluster_dedup.vcf.gz
+
+bcftools index africa_only_fws_0.95_cluster_dedup.vcf.gz
+
+plink --vcf africa_only_fws_0.95_cluster_dedup.vcf.gz --distance square --double-id --allow-extra-chr --out cluster_dedup
+
+```
+
+```{r}
+library(showtext)
+library(dplyr)
+library(ggplot2)
+library(ape)
+
+workdir <- "/mnt/storage13/leen/popgen_ethiopia_WGS/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen/pca/removal_similar_samples_africa_monoclonal" # Working directory with plink files
+prefix <- "cluster_dedup" # Prefix for plink files
+metadata <- "/mnt/storage13/leen/popgen_ethiopia_WGS/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen/pca/removal_similar_samples_africa_monoclonal/metadata_remaining_cluster_dedup.tsv" # File path to metadata
+
+calc_variance_explained <- function(pc_points) {
+    vars <- round(pc_points$eig / sum(pc_points$eig) * 100, 1)
+    names(vars) <- paste0("PC", seq_len(length(vars)))
+    vars
+}
+
+# METADATA
+met <- read.table(metadata, sep = "\t", stringsAsFactors = FALSE, header = TRUE)
+
+#### DIST#
+dist <- read.table(file.path(workdir, paste0(prefix, ".dist")), header = FALSE)
+id <- read.table(file.path(workdir, paste0(prefix, ".dist.id")))
+
+desc <- id %>% left_join(met, by = c("V1" = "Sample"))
+# desc <- id %>% left_join(met, by = c("V1" = "sample_id"))
+
+dist_m <- as.matrix(dist)
+colnames(dist_m) <- desc$V1
+rownames(dist_m) <- desc$V1
+
+# PCA ##
+cmd <- cmdscale(dist_m, k = 10, eig = TRUE, x.ret = TRUE) # Multidimensional Scaling - might take a while
+# saveRDS(cmd, paste0(prefix, ".dist.rds") # save to RDS format
+#cmd <- readRDS(file.path(workdir, paste0(prefix, ".dist.rds"))
+vars <- calc_variance_explained(cmd) # Calculations of variance explained
+
+# Overlay region, country info
+df <- as.data.frame(cmd$points, stringsAsFactors = F)
+df$country <- gsub("_", " ", desc$Country)
+#df$region <- gsub("_", " ", desc$region)
+df$sample_id <- rownames(matrix)
+colnames(df) <- gsub("V", "PC", colnames(df))
+
+color_by <- "country" # specify if coloured by region or country
+country_colors <- c(
+  "Ethiopia" = "#E41A1C", 
+  "Kenya" = "#377EB8", 
+  "Tanzania" = "#4DAF4A",
+  "Uganda" = "#984EA3",   
+  "Sudan" = "#FF7F00",  
+  "Ghana" = "#FFFF33", 
+  "Nigeria" = "#A65628",
+  "Mali" = "#eb88d4",
+  "Eritrea" = "darkblue",
+  "India" = "black",
+  "Thailand" = "darkgreen",
+  "Myanmar" = "lightsalmon"
+)
+
+# Graph with PC1 an PC2
+p <- ggplot(data = df, aes(x = PC1, y = PC2,
+       color = !!sym(color_by))) +
+    geom_point() +
+    scale_color_manual(values = country_colors) +
+    labs(x = paste0("PC1", " (", vars["PC1"], "%)"),
+            y = paste0("PC2", " (", vars["PC2"], "%)")) +
+    theme_classic() +
+    theme(legend.position = "bottom")
+ggsave(plot = p, filename = file.path(workdir, "figs/PC_12_africa_monoclonal_high_ibd_removed.pdf"))
+
+
+# Graph with PC1 and PC3
+q <- ggplot(data = df, aes(x = PC1, y = PC3,
+       color = !!sym(color_by))) +
+    geom_point() +
+    scale_color_manual(values = country_colors) +
+    labs(x = paste0("PC1", " (", vars["PC1"], "%)"),
+            y = paste0("PC3", " (", vars["PC3"], "%)")) +
+    theme_classic() +
+    theme(legend.position = "bottom")
+ggsave(plot = q, filename = file.path(workdir, "figs/PC_13_africa_monoclonal_high_ibd_removed.pdf"))
+
+# Export dist_m to .newick to make neighbour joining tree
+tree <- nj(dist_m)
+write.tree(phy = tree, file = file.path(workdir, paste0(prefix, ".newick")))
+
+```
+
+## Africa monoclonal — region-coloured plots (standalone)
+
+Re-reads the plink `.dist` files and reruns `cmdscale` from scratch, so this chunk can be run on its own without rerunning the full pipeline above.
+
+```{r}
+library(dplyr)
+library(ggplot2)
+
+workdir  <- "/mnt/storage13/leen/popgen_ethiopia_WGS/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen/pca/removal_similar_samples_africa_monoclonal"
+prefix   <- "cluster_dedup"
+metadata <- "/mnt/storage13/leen/popgen_ethiopia_WGS/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen/pca/removal_similar_samples_africa_monoclonal/metadata_remaining_cluster_dedup.tsv"
+
+calc_variance_explained <- function(pc_points) {
+    vars <- round(pc_points$eig / sum(pc_points$eig) * 100, 1)
+    names(vars) <- paste0("PC", seq_len(length(vars)))
+    vars
+}
+
+met  <- read.table(metadata, sep = "\t", stringsAsFactors = FALSE, header = TRUE)
+dist <- read.table(file.path(workdir, paste0(prefix, ".dist")), header = FALSE)
+id   <- read.table(file.path(workdir, paste0(prefix, ".dist.id")))
+
+desc <- id %>% left_join(met, by = c("V1" = "Sample"))
+
+dist_m <- as.matrix(dist)
+colnames(dist_m) <- desc$V1
+rownames(dist_m) <- desc$V1
+
+cmd  <- cmdscale(dist_m, k = 10, eig = TRUE, x.ret = TRUE)
+vars <- calc_variance_explained(cmd)
+
+df <- as.data.frame(cmd$points, stringsAsFactors = FALSE)
+df$country   <- gsub("_", " ", desc$Country)
+df$sample_id <- rownames(df)
+colnames(df) <- gsub("V", "PC", colnames(df))
+
+country_to_region <- c(
+  "Kenya"    = "East Africa",
+  "Tanzania" = "East Africa",
+  "Uganda"   = "East Africa",
+  "Ethiopia" = "Horn of Africa",
+  "Eritrea"  = "Horn of Africa",
+  "Sudan"    = "Horn of Africa",
+  "Ghana"    = "West Africa",
+  "Nigeria"  = "West Africa",
+  "Mali"     = "West Africa"
+)
+region_colors <- c(
+  "East Africa"    = "#377EB8",
+  "Horn of Africa" = "#E41A1C",
+  "West Africa"    = "#4DAF4A"
+)
+df$region <- country_to_region[df$country]
+
+p_region <- ggplot(data = df, aes(x = PC1, y = PC2, color = region)) +
+    geom_point() +
+    scale_color_manual(values = region_colors) +
+    labs(x = paste0("PC1 (", vars["PC1"], "%)"),
+         y = paste0("PC2 (", vars["PC2"], "%)")) +
+    theme_classic() +
+    theme(legend.position = "bottom")
+ggsave(plot = p_region, filename = file.path(workdir, "figs/PC_12_africa_monoclonal_high_ibd_removed_region.pdf"))
+
+q_region <- ggplot(data = df, aes(x = PC1, y = PC3, color = region)) +
+    geom_point() +
+    scale_color_manual(values = region_colors) +
+    labs(x = paste0("PC1 (", vars["PC1"], "%)"),
+         y = paste0("PC3 (", vars["PC3"], "%)")) +
+    theme_classic() +
+    theme(legend.position = "bottom")
+ggsave(plot = q_region, filename = file.path(workdir, "figs/PC_13_africa_monoclonal_high_ibd_removed_region.pdf"))
+```
+
+# Africa + India analysis
+
+Same workflow as above (fws >= 0.95 monoclonal filter, hmmIBD, single linkage clustering at IBD >= 0.95, retain one random representative per cluster), but with Indian samples included. Sample list is `africa_India_only_samples.txt`.
+
+```{bash}
+conda activate fastq2matrix
+
+# Subset the monoclonal VCF to Africa + India samples
+bcftools view -S africa_India_only_samples.txt allsamples_fws_0.95.vcf.gz -Oz --force-samples -o africa_india_fws_0.95.vcf.gz
+bcftools index africa_india_fws_0.95.vcf.gz
+
+bcftools query -l africa_india_fws_0.95.vcf.gz | wc -l
+```
+
+```{bash}
+# Conversion to matrix
+python ~/software/fastq2matrix/scripts/vcf2matrix.py \
+    --vcf africa_india_fws_0.95.vcf.gz \
+    --no-iupacgt \
+    --na NA \
+    --threads 32
+```
+
+```{bash}
+# Calculate IBD
+conda activate ibd
+
+Rscript ~/software/malaria-hub/ibd/run_hmmIBD_per_category.R \
+-d . \
+-b africa_india_fws_0.95.mat.bin \
+-m /mnt/storage13/leen/popgen_ethiopia_WGS/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen/pca/removal_similar_samples_africa_monoclonal/metadata_edit.csv \
+-c sample \
+--label_category type \
+--label_fws fws \
+--fws_th 0.95 \
+--label_id Sample \
+--maf 0.01 \
+--na_char NA \
+--remove_chr Pf3D7_API_v3,Pf_M76611
+
+# hmmIBD output prefix is suffixed with _africa_india to avoid clobbering the africa-only run
+~/software/hmmIBD/hmmIBD -i hmmIBD_sample_maf0.01.txt -o hmmIBD_sample_maf0.01_africa_india.out
+```
+
+```{r}
+# Single linkage clustering of Africa+India samples with IBD >= 0.95,
+# retain one random representative per cluster.
+library(dplyr)
+library(tidyr)
+library(readr)
+library(igraph)
+
+metadata <- read.csv(
+  "/mnt/storage13/leen/popgen_ethiopia_WGS/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen/pca/metadata.csv",
+  sep = ","
+) %>%
+  select(wgs_id, Country, fws) %>%
+  mutate(Sample = gsub("_S[0-9]+$", "", wgs_id)) %>%
+  mutate(Sample = gsub("-D0", "_D0", Sample)) %>%
+  mutate(Sample = gsub("NG-A4488_", "", Sample)) %>%
+  mutate(Sample = gsub("_libLAN[0-9]+", "", Sample)) %>%
+  select(Sample, Country, fws) %>%
+  mutate(type = "sample")
+
+# Restrict metadata to the Africa+India sample set actually used
+ai_samples <- read.table(
+    "/mnt/storage13/leen/popgen_ethiopia_WGS/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen/pca/removal_similar_samples_africa_monoclonal/africa_India_only_samples.txt",
+    header = FALSE, stringsAsFactors = FALSE
+)$V1
+metadata_ai <- metadata %>% filter(Sample %in% ai_samples)
+
+all_hmmibd_fract <- read.table(
+    "/mnt/storage13/leen/popgen_ethiopia_WGS/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen/pca/removal_similar_samples_africa_monoclonal/hmmIBD_sample_maf0.01_africa_india.out.hmm_fract.txt",
+    header = TRUE, stringsAsFactors = FALSE
+)
+
+high_ibd <- all_hmmibd_fract %>%
+    filter(fract_sites_IBD >= 0.95)
+
+g <- graph_from_data_frame(
+    high_ibd %>% select(sample1, sample2),
+    directed = FALSE
+)
+comps <- components(g)
+
+clusters_df <- tibble(
+    Sample  = names(comps$membership),
+    cluster = comps$membership
+)
+
+set.seed(42)
+representatives <- clusters_df %>%
+    group_by(cluster) %>%
+    slice_sample(n = 1) %>%
+    ungroup() %>%
+    pull(Sample)
+
+all_in_pairs <- unique(c(high_ibd$sample1, high_ibd$sample2))
+singletons   <- setdiff(metadata_ai$Sample, all_in_pairs)
+
+samples_to_keep <- c(singletons, representatives)
+samples_to_drop <- setdiff(all_in_pairs, representatives)
+
+remaining_samples <- metadata_ai %>%
+    filter(Sample %in% samples_to_keep)
+
+message("Total Africa+India samples: ", nrow(metadata_ai))
+message("High-IBD pairs: ", nrow(high_ibd))
+message("Clusters: ", comps$no)
+message("Cluster size distribution:")
+print(table(comps$csize))
+message("Samples retained: ", length(samples_to_keep),
+        " (", length(singletons), " singletons + ",
+        length(representatives), " cluster representatives)")
+message("Samples dropped: ", length(samples_to_drop))
+
+readr::write_tsv(
+    remaining_samples,
+    "/mnt/storage13/leen/popgen_ethiopia_WGS/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen/pca/removal_similar_samples_africa_monoclonal/metadata_remaining_cluster_dedup_africa_india.tsv"
+)
+
+readr::write_tsv(
+    tibble(Sample = samples_to_drop),
+    "/mnt/storage13/leen/popgen_ethiopia_WGS/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen/pca/removal_similar_samples_africa_monoclonal/cluster_dedup_samples_to_remove_africa_india.tsv",
+    col_names = FALSE
+)
+
+readr::write_tsv(
+    clusters_df %>% arrange(cluster, Sample),
+    "/mnt/storage13/leen/popgen_ethiopia_WGS/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen/pca/removal_similar_samples_africa_monoclonal/ibd_clusters_africa_india.tsv"
+)
+```
+
+```{bash}
+conda activate fastq2matrix
+
+wc -l /mnt/storage13/leen/popgen_ethiopia_WGS/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen/pca/removal_similar_samples_africa_monoclonal/cluster_dedup_samples_to_remove_africa_india.tsv
+
+# Remove non-representative cluster members from the VCF and redo the PCA
+bcftools view -S ^cluster_dedup_samples_to_remove_africa_india.tsv africa_india_fws_0.95.vcf.gz -Oz -o africa_india_fws_0.95_cluster_dedup.vcf.gz
+bcftools index africa_india_fws_0.95_cluster_dedup.vcf.gz
+
+plink --vcf africa_india_fws_0.95_cluster_dedup.vcf.gz --distance square --double-id --allow-extra-chr --out cluster_dedup_africa_india
+```
+
+```{r}
+library(showtext)
+library(dplyr)
+library(ggplot2)
+library(ape)
+
+workdir  <- "/mnt/storage13/leen/popgen_ethiopia_WGS/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen/pca/removal_similar_samples_africa_monoclonal"
+prefix   <- "cluster_dedup_africa_india"
+metadata <- "/mnt/storage13/leen/popgen_ethiopia_WGS/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen/pca/removal_similar_samples_africa_monoclonal/metadata_remaining_cluster_dedup_africa_india.tsv"
+
+calc_variance_explained <- function(pc_points) {
+    vars <- round(pc_points$eig / sum(pc_points$eig) * 100, 1)
+    names(vars) <- paste0("PC", seq_len(length(vars)))
+    vars
+}
+
+met  <- read.table(metadata, sep = "\t", stringsAsFactors = FALSE, header = TRUE)
+dist <- read.table(file.path(workdir, paste0(prefix, ".dist")), header = FALSE)
+id   <- read.table(file.path(workdir, paste0(prefix, ".dist.id")))
+
+desc <- id %>% left_join(met, by = c("V1" = "Sample"))
+
+dist_m <- as.matrix(dist)
+colnames(dist_m) <- desc$V1
+rownames(dist_m) <- desc$V1
+
+cmd  <- cmdscale(dist_m, k = 10, eig = TRUE, x.ret = TRUE)
+vars <- calc_variance_explained(cmd)
+
+df <- as.data.frame(cmd$points, stringsAsFactors = FALSE)
+df$country   <- gsub("_", " ", desc$Country)
+df$sample_id <- rownames(df)
+colnames(df) <- gsub("V", "PC", colnames(df))
+
+color_by <- "country"
+country_colors <- c(
+  "Ethiopia" = "#E41A1C",
+  "Kenya" = "#377EB8",
+  "Tanzania" = "#4DAF4A",
+  "Uganda" = "#984EA3",
+  "Sudan" = "#FF7F00",
+  "Ghana" = "#FFFF33",
+  "Nigeria" = "#A65628",
+  "Mali" = "#eb88d4",
+  "Eritrea" = "darkblue",
+  "India" = "black",
+  "Thailand" = "darkgreen",
+  "Myanmar" = "lightsalmon"
+)
+
+p <- ggplot(data = df, aes(x = PC1, y = PC2, color = !!sym(color_by))) +
+    geom_point() +
+    scale_color_manual(values = country_colors) +
+    labs(x = paste0("PC1 (", vars["PC1"], "%)"),
+         y = paste0("PC2 (", vars["PC2"], "%)")) +
+    theme_classic() +
+    theme(legend.position = "bottom")
+ggsave(plot = p, filename = file.path(workdir, "figs/PC_12_africa_india_monoclonal_cluster_dedup.pdf"))
+
+q <- ggplot(data = df, aes(x = PC1, y = PC3, color = !!sym(color_by))) +
+    geom_point() +
+    scale_color_manual(values = country_colors) +
+    labs(x = paste0("PC1 (", vars["PC1"], "%)"),
+         y = paste0("PC3 (", vars["PC3"], "%)")) +
+    theme_classic() +
+    theme(legend.position = "bottom")
+ggsave(plot = q, filename = file.path(workdir, "figs/PC_13_africa_india_monoclonal_cluster_dedup.pdf"))
+
+tree <- nj(dist_m)
+write.tree(phy = tree, file = file.path(workdir, paste0(prefix, ".newick")))
+```
+
+# East + West Africa only
+
+Same workflow as the Africa-only monoclonal pipeline (fws >= 0.95, hmmIBD, single linkage clustering at IBD >= 0.95, retain one random representative per cluster), restricted to East and West African samples listed in `east_west_africa_only_samples.txt`.
+
+```{bash}
+conda activate fastq2matrix
+
+# Subset the monoclonal VCF to East + West Africa samples
+bcftools view -S east_west_africa_only_samples.txt allsamples_fws_0.95.vcf.gz -Oz --force-samples -o ew_africa_fws_0.95.vcf.gz
+bcftools index ew_africa_fws_0.95.vcf.gz
+
+bcftools query -l ew_africa_fws_0.95.vcf.gz | wc -l
+```
+
+```{bash}
+# Conversion to matrix
+python ~/software/fastq2matrix/scripts/vcf2matrix.py \
+    --vcf ew_africa_fws_0.95.vcf.gz \
+    --no-iupacgt \
+    --na NA \
+    --threads 32
+```
+
+```{bash}
+# Calculate IBD
+conda activate ibd
+
+Rscript ~/software/malaria-hub/ibd/run_hmmIBD_per_category.R \
+-d . \
+-b ew_africa_fws_0.95.mat.bin \
+-m /mnt/storage13/leen/popgen_ethiopia_WGS/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen/pca/removal_similar_samples_africa_monoclonal/metadata_edit.csv \
+-c sample \
+--label_category type \
+--label_fws fws \
+--fws_th 0.95 \
+--label_id Sample \
+--maf 0.01 \
+--na_char NA \
+--remove_chr Pf3D7_API_v3,Pf_M76611
+
+~/software/hmmIBD/hmmIBD -i hmmIBD_sample_maf0.01.txt -o hmmIBD_sample_maf0.01_ew_africa.out
+```
+
+```{r}
+# Single linkage clustering of East+West Africa monoclonal samples at IBD >= 0.95,
+# retain one random representative per cluster.
+library(dplyr)
+library(tidyr)
+library(readr)
+library(igraph)
+
+metadata <- read.csv(
+  "/mnt/storage13/leen/popgen_ethiopia_WGS/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen/pca/metadata.csv",
+  sep = ","
+) %>%
+  select(wgs_id, Country, fws) %>%
+  mutate(Sample = gsub("_S[0-9]+$", "", wgs_id)) %>%
+  mutate(Sample = gsub("-D0", "_D0", Sample)) %>%
+  mutate(Sample = gsub("NG-A4488_", "", Sample)) %>%
+  mutate(Sample = gsub("_libLAN[0-9]+", "", Sample)) %>%
+  select(Sample, Country, fws) %>%
+  mutate(type = "sample")
+
+ew_samples <- read.table(
+    "/mnt/storage13/leen/popgen_ethiopia_WGS/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen/pca/removal_similar_samples_africa_monoclonal/east_west_africa_only_samples.txt",
+    header = FALSE, stringsAsFactors = FALSE
+)$V1
+metadata_ew <- metadata %>% filter(Sample %in% ew_samples)
+
+all_hmmibd_fract <- read.table(
+    "/mnt/storage13/leen/popgen_ethiopia_WGS/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen/pca/removal_similar_samples_africa_monoclonal/hmmIBD_sample_maf0.01_ew_africa.out.hmm_fract.txt",
+    header = TRUE, stringsAsFactors = FALSE
+)
+
+high_ibd <- all_hmmibd_fract %>%
+    filter(fract_sites_IBD >= 0.95)
+
+g <- graph_from_data_frame(
+    high_ibd %>% select(sample1, sample2),
+    directed = FALSE
+)
+comps <- components(g)
+
+clusters_df <- tibble(
+    Sample  = names(comps$membership),
+    cluster = comps$membership
+)
+
+set.seed(42)
+representatives <- clusters_df %>%
+    group_by(cluster) %>%
+    slice_sample(n = 1) %>%
+    ungroup() %>%
+    pull(Sample)
+
+all_in_pairs <- unique(c(high_ibd$sample1, high_ibd$sample2))
+singletons   <- setdiff(metadata_ew$Sample, all_in_pairs)
+
+samples_to_keep <- c(singletons, representatives)
+samples_to_drop <- setdiff(all_in_pairs, representatives)
+
+remaining_samples <- metadata_ew %>%
+    filter(Sample %in% samples_to_keep)
+
+message("Total East+West Africa monoclonal samples: ", nrow(metadata_ew))
+message("High-IBD pairs: ", nrow(high_ibd))
+message("Clusters: ", comps$no)
+message("Cluster size distribution:")
+print(table(comps$csize))
+message("Samples retained: ", length(samples_to_keep),
+        " (", length(singletons), " singletons + ",
+        length(representatives), " cluster representatives)")
+message("Samples dropped: ", length(samples_to_drop))
+
+readr::write_tsv(
+    remaining_samples,
+    "/mnt/storage13/leen/popgen_ethiopia_WGS/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen/pca/removal_similar_samples_africa_monoclonal/metadata_remaining_cluster_dedup_ew_africa.tsv"
+)
+
+readr::write_tsv(
+    tibble(Sample = samples_to_drop),
+    "/mnt/storage13/leen/popgen_ethiopia_WGS/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen/pca/removal_similar_samples_africa_monoclonal/cluster_dedup_samples_to_remove_ew_africa.tsv",
+    col_names = FALSE
+)
+
+readr::write_tsv(
+    clusters_df %>% arrange(cluster, Sample),
+    "/mnt/storage13/leen/popgen_ethiopia_WGS/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen/pca/removal_similar_samples_africa_monoclonal/ibd_clusters_ew_africa.tsv"
+)
+```
+
+```{bash}
+conda activate fastq2matrix
+
+wc -l /mnt/storage13/leen/popgen_ethiopia_WGS/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen/pca/removal_similar_samples_africa_monoclonal/cluster_dedup_samples_to_remove_ew_africa.tsv
+
+bcftools view -S ^cluster_dedup_samples_to_remove_ew_africa.tsv ew_africa_fws_0.95.vcf.gz -Oz -o ew_africa_fws_0.95_cluster_dedup.vcf.gz
+bcftools index ew_africa_fws_0.95_cluster_dedup.vcf.gz
+
+plink --vcf ew_africa_fws_0.95_cluster_dedup.vcf.gz --distance square --double-id --allow-extra-chr --out cluster_dedup_ew_africa
+```
+
+```{r}
+library(showtext)
+library(dplyr)
+library(ggplot2)
+library(ape)
+
+workdir  <- "/mnt/storage13/leen/popgen_ethiopia_WGS/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen/pca/removal_similar_samples_africa_monoclonal"
+prefix   <- "cluster_dedup_ew_africa"
+metadata <- "/mnt/storage13/leen/popgen_ethiopia_WGS/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen/pca/removal_similar_samples_africa_monoclonal/metadata_remaining_cluster_dedup_ew_africa.tsv"
+
+calc_variance_explained <- function(pc_points) {
+    vars <- round(pc_points$eig / sum(pc_points$eig) * 100, 1)
+    names(vars) <- paste0("PC", seq_len(length(vars)))
+    vars
+}
+
+met  <- read.table(metadata, sep = "\t", stringsAsFactors = FALSE, header = TRUE)
+dist <- read.table(file.path(workdir, paste0(prefix, ".dist")), header = FALSE)
+id   <- read.table(file.path(workdir, paste0(prefix, ".dist.id")))
+
+desc <- id %>% left_join(met, by = c("V1" = "Sample"))
+
+dist_m <- as.matrix(dist)
+colnames(dist_m) <- desc$V1
+rownames(dist_m) <- desc$V1
+
+cmd  <- cmdscale(dist_m, k = 10, eig = TRUE, x.ret = TRUE)
+vars <- calc_variance_explained(cmd)
+
+df <- as.data.frame(cmd$points, stringsAsFactors = FALSE)
+df$country   <- gsub("_", " ", desc$Country)
+df$sample_id <- rownames(df)
+colnames(df) <- gsub("V", "PC", colnames(df))
+
+color_by <- "country"
+country_colors <- c(
+  "Ethiopia" = "#E41A1C",
+  "Kenya" = "#377EB8",
+  "Tanzania" = "#4DAF4A",
+  "Uganda" = "#984EA3",
+  "Sudan" = "#FF7F00",
+  "Ghana" = "#FFFF33",
+  "Nigeria" = "#A65628",
+  "Mali" = "#eb88d4",
+  "Eritrea" = "darkblue",
+  "India" = "black",
+  "Thailand" = "darkgreen",
+  "Myanmar" = "lightsalmon"
+)
+
+p <- ggplot(data = df, aes(x = PC1, y = PC2, color = !!sym(color_by))) +
+    geom_point() +
+    scale_color_manual(values = country_colors) +
+    labs(x = paste0("PC1 (", vars["PC1"], "%)"),
+         y = paste0("PC2 (", vars["PC2"], "%)")) +
+    theme_classic() +
+    theme(legend.position = "bottom")
+ggsave(plot = p, filename = file.path(workdir, "figs/PC_12_ew_africa_monoclonal_cluster_dedup.pdf"))
+
+q <- ggplot(data = df, aes(x = PC1, y = PC3, color = !!sym(color_by))) +
+    geom_point() +
+    scale_color_manual(values = country_colors) +
+    labs(x = paste0("PC1 (", vars["PC1"], "%)"),
+         y = paste0("PC3 (", vars["PC3"], "%)")) +
+    theme_classic() +
+    theme(legend.position = "bottom")
+ggsave(plot = q, filename = file.path(workdir, "figs/PC_13_ew_africa_monoclonal_cluster_dedup.pdf"))
+
+tree <- nj(dist_m)
+write.tree(phy = tree, file = file.path(workdir, paste0(prefix, ".newick")))
+```
+
+# All-samples PCA with dominant-allele genotypes
+
+For samples with heterozygous calls, replace the GT with the allele that has the higher read depth in `FORMAT/AD`. Random tie-break (seed 42) when AD is tied. `bcftools norm -m -any` is run first to ensure biallelic representation. This keeps all samples (including multiclonal) but collapses within-host noise so each sample contributes a single dominant haplotype.
+
+## Preprocessing — dominant-allele transform on the full VCF
+
+```{bash}
+conda activate fastq2matrix
+
+# Normalise (split any multi-allelics) then replace heterozygous calls with the
+# dominant allele based on FORMAT/AD. Random tie-break (seed 42 in awk).
+bcftools norm -m -any /mnt/storage13/leen/popgen_ethiopia_WGS/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen.filt.csq.bi.GT.miss0.2.vqslod.filt.snps.vcf.gz -Ou \
+  | bcftools view -Ov \
+  | awk 'BEGIN { srand(42); OFS = "\t" }
+    /^#/ { print; next }
+    {
+      n = split($9, fmt, ":"); gt_idx = 0; ad_idx = 0
+      for (i = 1; i <= n; i++) {
+        if (fmt[i] == "GT") gt_idx = i
+        if (fmt[i] == "AD") ad_idx = i
+      }
+      if (gt_idx == 0 || ad_idx == 0) { print; next }
+      for (s = 10; s <= NF; s++) {
+        m = split($s, vals, ":")
+        gt = vals[gt_idx]
+        if (gt == "0/1" || gt == "1/0" || gt == "0|1" || gt == "1|0") {
+          ad = vals[ad_idx]
+          if (ad != "." && ad != "") {
+            split(ad, ads, ",")
+            if (ads[1] != "." && ads[2] != "." && ads[1] != "" && ads[2] != "") {
+              ref_d = ads[1] + 0; alt_d = ads[2] + 0
+              if (ref_d > alt_d)      new_gt = "0/0"
+              else if (alt_d > ref_d) new_gt = "1/1"
+              else                    new_gt = (rand() < 0.5) ? "0/0" : "1/1"
+              if (gt ~ /\|/) sub("/", "|", new_gt)
+              vals[gt_idx] = new_gt
+              new_field = vals[1]
+              for (j = 2; j <= m; j++) new_field = new_field ":" vals[j]
+              $s = new_field
+            }
+          }
+        }
+      }
+      print
+    }' \
+  | bcftools view -Oz -o allsamples_dom.vcf.gz
+
+bcftools index allsamples_dom.vcf.gz
+bcftools query -l allsamples_dom.vcf.gz | wc -l
+```
+
+## Africa only — all samples with dominant alleles
+
+```{bash}
+conda activate fastq2matrix
+
+# Subset dom-processed VCF to African samples only
+bcftools view -S africa_only_samples.txt allsamples_dom.vcf.gz -Oz --force-samples -o africa_dom.vcf.gz
+bcftools index africa_dom.vcf.gz
+bcftools query -l africa_dom.vcf.gz | wc -l
+```
+
+```{bash}
+# Conversion to matrix
+python ~/software/fastq2matrix/scripts/vcf2matrix.py \
+    --vcf africa_dom.vcf.gz \
+    --no-iupacgt \
+    --na NA \
+    --threads 32
+```
+
+```{bash}
+# Calculate IBD
+conda activate ibd
+
+# --fws_th 0 keeps every sample (no monoclonal filter applied here — we kept
+# all samples and resolved hets via dominant allele instead).
+Rscript ~/software/malaria-hub/ibd/run_hmmIBD_per_category.R \
+-d . \
+-b africa_dom.mat.bin \
+-m /mnt/storage13/leen/popgen_ethiopia_WGS/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen/pca/removal_similar_samples_africa_monoclonal/metadata_edit.csv \
+-c sample \
+--label_category type \
+--label_fws fws \
+--fws_th 0 \
+--label_id Sample \
+--maf 0.01 \
+--na_char NA \
+--remove_chr Pf3D7_API_v3,Pf_M76611
+
+~/software/hmmIBD/hmmIBD -i hmmIBD_sample_maf0.01.txt -o hmmIBD_sample_maf0.01_africa_dom.out
+```
+
+```{r}
+# Single linkage clustering of Africa all-samples (dom) at IBD >= 0.95,
+# retain one random representative per cluster.
+library(dplyr)
+library(tidyr)
+library(readr)
+library(igraph)
+
+metadata <- read.csv(
+  "/mnt/storage13/leen/popgen_ethiopia_WGS/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen/pca/metadata.csv",
+  sep = ","
+) %>%
+  select(wgs_id, Country, fws) %>%
+  mutate(Sample = gsub("_S[0-9]+$", "", wgs_id)) %>%
+  mutate(Sample = gsub("-D0", "_D0", Sample)) %>%
+  mutate(Sample = gsub("NG-A4488_", "", Sample)) %>%
+  mutate(Sample = gsub("_libLAN[0-9]+", "", Sample)) %>%
+  select(Sample, Country, fws) %>%
+  mutate(type = "sample")
+
+africa_samples <- read.table(
+    "/mnt/storage13/leen/popgen_ethiopia_WGS/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen/pca/removal_similar_samples_africa_monoclonal/africa_only_samples.txt",
+    header = FALSE, stringsAsFactors = FALSE
+)$V1
+metadata_af <- metadata %>% filter(Sample %in% africa_samples)
+
+all_hmmibd_fract <- read.table(
+    "/mnt/storage13/leen/popgen_ethiopia_WGS/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen/pca/removal_similar_samples_africa_monoclonal/hmmIBD_sample_maf0.01_africa_dom.out.hmm_fract.txt",
+    header = TRUE, stringsAsFactors = FALSE
+)
+
+high_ibd <- all_hmmibd_fract %>%
+    filter(fract_sites_IBD >= 0.95)
+
+g <- graph_from_data_frame(
+    high_ibd %>% select(sample1, sample2),
+    directed = FALSE
+)
+comps <- components(g)
+
+clusters_df <- tibble(
+    Sample  = names(comps$membership),
+    cluster = comps$membership
+)
+
+set.seed(42)
+representatives <- clusters_df %>%
+    group_by(cluster) %>%
+    slice_sample(n = 1) %>%
+    ungroup() %>%
+    pull(Sample)
+
+all_in_pairs <- unique(c(high_ibd$sample1, high_ibd$sample2))
+singletons   <- setdiff(metadata_af$Sample, all_in_pairs)
+
+samples_to_keep <- c(singletons, representatives)
+samples_to_drop <- setdiff(all_in_pairs, representatives)
+
+remaining_samples <- metadata_af %>%
+    filter(Sample %in% samples_to_keep)
+
+message("Total Africa all-samples (dom): ", nrow(metadata_af))
+message("High-IBD pairs: ", nrow(high_ibd))
+message("Clusters: ", comps$no)
+message("Cluster size distribution:")
+print(table(comps$csize))
+message("Samples retained: ", length(samples_to_keep),
+        " (", length(singletons), " singletons + ",
+        length(representatives), " cluster representatives)")
+message("Samples dropped: ", length(samples_to_drop))
+
+readr::write_tsv(
+    remaining_samples,
+    "/mnt/storage13/leen/popgen_ethiopia_WGS/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen/pca/removal_similar_samples_africa_monoclonal/metadata_remaining_cluster_dedup_africa_dom.tsv"
+)
+
+readr::write_tsv(
+    tibble(Sample = samples_to_drop),
+    "/mnt/storage13/leen/popgen_ethiopia_WGS/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen/pca/removal_similar_samples_africa_monoclonal/cluster_dedup_samples_to_remove_africa_dom.tsv",
+    col_names = FALSE
+)
+
+readr::write_tsv(
+    clusters_df %>% arrange(cluster, Sample),
+    "/mnt/storage13/leen/popgen_ethiopia_WGS/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen/pca/removal_similar_samples_africa_monoclonal/ibd_clusters_africa_dom.tsv"
+)
+```
+
+```{bash}
+conda activate fastq2matrix
+
+wc -l /mnt/storage13/leen/popgen_ethiopia_WGS/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen/pca/removal_similar_samples_africa_monoclonal/cluster_dedup_samples_to_remove_africa_dom.tsv
+
+bcftools view -S ^cluster_dedup_samples_to_remove_africa_dom.tsv africa_dom.vcf.gz -Oz -o africa_dom_cluster_dedup.vcf.gz
+bcftools index africa_dom_cluster_dedup.vcf.gz
+
+plink --vcf africa_dom_cluster_dedup.vcf.gz --distance square --double-id --allow-extra-chr --out cluster_dedup_africa_dom
+```
+
+```{r}
+library(showtext)
+library(dplyr)
+library(ggplot2)
+library(ape)
+
+workdir  <- "/mnt/storage13/leen/popgen_ethiopia_WGS/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen/pca/removal_similar_samples_africa_monoclonal"
+prefix   <- "cluster_dedup_africa_dom"
+metadata <- "/mnt/storage13/leen/popgen_ethiopia_WGS/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen/pca/removal_similar_samples_africa_monoclonal/metadata_remaining_cluster_dedup_africa_dom.tsv"
+
+calc_variance_explained <- function(pc_points) {
+    vars <- round(pc_points$eig / sum(pc_points$eig) * 100, 1)
+    names(vars) <- paste0("PC", seq_len(length(vars)))
+    vars
+}
+
+met  <- read.table(metadata, sep = "\t", stringsAsFactors = FALSE, header = TRUE)
+dist <- read.table(file.path(workdir, paste0(prefix, ".dist")), header = FALSE)
+id   <- read.table(file.path(workdir, paste0(prefix, ".dist.id")))
+
+desc <- id %>% left_join(met, by = c("V1" = "Sample"))
+
+dist_m <- as.matrix(dist)
+colnames(dist_m) <- desc$V1
+rownames(dist_m) <- desc$V1
+
+cmd  <- cmdscale(dist_m, k = 10, eig = TRUE, x.ret = TRUE)
+vars <- calc_variance_explained(cmd)
+
+df <- as.data.frame(cmd$points, stringsAsFactors = FALSE)
+df$country   <- gsub("_", " ", desc$Country)
+df$sample_id <- rownames(df)
+colnames(df) <- gsub("V", "PC", colnames(df))
+
+color_by <- "country"
+country_colors <- c(
+  "Ethiopia" = "#E41A1C",
+  "Kenya" = "#377EB8",
+  "Tanzania" = "#4DAF4A",
+  "Uganda" = "#984EA3",
+  "Sudan" = "#FF7F00",
+  "Ghana" = "#FFFF33",
+  "Nigeria" = "#A65628",
+  "Mali" = "#eb88d4",
+  "Eritrea" = "darkblue",
+  "India" = "black",
+  "Thailand" = "darkgreen",
+  "Myanmar" = "lightsalmon"
+)
+
+p <- ggplot(data = df, aes(x = PC1, y = PC2, color = !!sym(color_by))) +
+    geom_point() +
+    scale_color_manual(values = country_colors) +
+    labs(x = paste0("PC1 (", vars["PC1"], "%)"),
+         y = paste0("PC2 (", vars["PC2"], "%)")) +
+    theme_classic() +
+    theme(legend.position = "bottom")
+ggsave(plot = p, filename = file.path(workdir, "figs/PC_12_africa_allsamples_dom.pdf"))
+
+q <- ggplot(data = df, aes(x = PC1, y = PC3, color = !!sym(color_by))) +
+    geom_point() +
+    scale_color_manual(values = country_colors) +
+    labs(x = paste0("PC1 (", vars["PC1"], "%)"),
+         y = paste0("PC3 (", vars["PC3"], "%)")) +
+    theme_classic() +
+    theme(legend.position = "bottom")
+ggsave(plot = q, filename = file.path(workdir, "figs/PC_13_africa_allsamples_dom.pdf"))
+
+tree <- nj(dist_m)
+write.tree(phy = tree, file = file.path(workdir, paste0(prefix, ".newick")))
+```
+
+### Africa dom — region-coloured plots (standalone)
+
+Re-reads the plink `.dist` files and reruns `cmdscale` from scratch, so this chunk can be run on its own without rerunning the full pipeline above.
+
+```{r}
+library(dplyr)
+library(ggplot2)
+
+workdir  <- "/mnt/storage13/leen/popgen_ethiopia_WGS/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen/pca/removal_similar_samples_africa_monoclonal"
+prefix   <- "cluster_dedup_africa_dom"
+metadata <- "/mnt/storage13/leen/popgen_ethiopia_WGS/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen/pca/removal_similar_samples_africa_monoclonal/metadata_remaining_cluster_dedup_africa_dom.tsv"
+
+calc_variance_explained <- function(pc_points) {
+    vars <- round(pc_points$eig / sum(pc_points$eig) * 100, 1)
+    names(vars) <- paste0("PC", seq_len(length(vars)))
+    vars
+}
+
+met  <- read.table(metadata, sep = "\t", stringsAsFactors = FALSE, header = TRUE)
+dist <- read.table(file.path(workdir, paste0(prefix, ".dist")), header = FALSE)
+id   <- read.table(file.path(workdir, paste0(prefix, ".dist.id")))
+
+desc <- id %>% left_join(met, by = c("V1" = "Sample"))
+
+dist_m <- as.matrix(dist)
+colnames(dist_m) <- desc$V1
+rownames(dist_m) <- desc$V1
+
+cmd  <- cmdscale(dist_m, k = 10, eig = TRUE, x.ret = TRUE)
+vars <- calc_variance_explained(cmd)
+
+df <- as.data.frame(cmd$points, stringsAsFactors = FALSE)
+df$country   <- gsub("_", " ", desc$Country)
+df$sample_id <- rownames(df)
+colnames(df) <- gsub("V", "PC", colnames(df))
+
+country_to_region <- c(
+  "Kenya"    = "East Africa",
+  "Tanzania" = "East Africa",
+  "Uganda"   = "East Africa",
+  "Ethiopia" = "Horn of Africa",
+  "Eritrea"  = "Horn of Africa",
+  "Sudan"    = "Horn of Africa",
+  "Ghana"    = "West Africa",
+  "Nigeria"  = "West Africa",
+  "Mali"     = "West Africa"
+)
+region_colors <- c(
+  "East Africa"    = "#377EB8",
+  "Horn of Africa" = "#E41A1C",
+  "West Africa"    = "#4DAF4A"
+)
+df$region <- country_to_region[df$country]
+
+p_region <- ggplot(data = df, aes(x = PC1, y = PC2, color = region)) +
+    geom_point() +
+    scale_color_manual(values = region_colors) +
+    labs(x = paste0("PC1 (", vars["PC1"], "%)"),
+         y = paste0("PC2 (", vars["PC2"], "%)")) +
+    theme_classic() +
+    theme(legend.position = "bottom")
+ggsave(plot = p_region, filename = file.path(workdir, "figs/PC_12_africa_allsamples_dom_region.pdf"))
+
+q_region <- ggplot(data = df, aes(x = PC1, y = PC3, color = region)) +
+    geom_point() +
+    scale_color_manual(values = region_colors) +
+    labs(x = paste0("PC1 (", vars["PC1"], "%)"),
+         y = paste0("PC3 (", vars["PC3"], "%)")) +
+    theme_classic() +
+    theme(legend.position = "bottom")
+ggsave(plot = q_region, filename = file.path(workdir, "figs/PC_13_africa_allsamples_dom_region.pdf"))
+```
+
+## Africa + India — all samples with dominant alleles
+
+```{bash}
+conda activate fastq2matrix
+
+# Subset dom-processed VCF to Africa + India samples
+bcftools view -S africa_India_only_samples.txt allsamples_dom.vcf.gz -Oz --force-samples -o africa_india_dom.vcf.gz
+bcftools index africa_india_dom.vcf.gz
+bcftools query -l africa_india_dom.vcf.gz | wc -l
+```
+
+```{bash}
+# Conversion to matrix
+python ~/software/fastq2matrix/scripts/vcf2matrix.py \
+    --vcf africa_india_dom.vcf.gz \
+    --no-iupacgt \
+    --na NA \
+    --threads 32
+```
+
+```{bash}
+# Calculate IBD
+conda activate ibd
+
+Rscript ~/software/malaria-hub/ibd/run_hmmIBD_per_category.R \
+-d . \
+-b africa_india_dom.mat.bin \
+-m /mnt/storage13/leen/popgen_ethiopia_WGS/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen/pca/removal_similar_samples_africa_monoclonal/metadata_edit.csv \
+-c sample \
+--label_category type \
+--label_fws fws \
+--fws_th 0 \
+--label_id Sample \
+--maf 0.01 \
+--na_char NA \
+--remove_chr Pf3D7_API_v3,Pf_M76611
+
+~/software/hmmIBD/hmmIBD -i hmmIBD_sample_maf0.01.txt -o hmmIBD_sample_maf0.01_africa_india_dom.out
+```
+
+```{r}
+# Single linkage clustering of Africa+India all-samples (dom) at IBD >= 0.95,
+# retain one random representative per cluster.
+library(dplyr)
+library(tidyr)
+library(readr)
+library(igraph)
+
+metadata <- read.csv(
+  "/mnt/storage13/leen/popgen_ethiopia_WGS/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen/pca/metadata.csv",
+  sep = ","
+) %>%
+  select(wgs_id, Country, fws) %>%
+  mutate(Sample = gsub("_S[0-9]+$", "", wgs_id)) %>%
+  mutate(Sample = gsub("-D0", "_D0", Sample)) %>%
+  mutate(Sample = gsub("NG-A4488_", "", Sample)) %>%
+  mutate(Sample = gsub("_libLAN[0-9]+", "", Sample)) %>%
+  select(Sample, Country, fws) %>%
+  mutate(type = "sample")
+
+ai_samples <- read.table(
+    "/mnt/storage13/leen/popgen_ethiopia_WGS/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen/pca/removal_similar_samples_africa_monoclonal/africa_India_only_samples.txt",
+    header = FALSE, stringsAsFactors = FALSE
+)$V1
+metadata_ai <- metadata %>% filter(Sample %in% ai_samples)
+
+all_hmmibd_fract <- read.table(
+    "/mnt/storage13/leen/popgen_ethiopia_WGS/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen/pca/removal_similar_samples_africa_monoclonal/hmmIBD_sample_maf0.01_africa_india_dom.out.hmm_fract.txt",
+    header = TRUE, stringsAsFactors = FALSE
+)
+
+high_ibd <- all_hmmibd_fract %>%
+    filter(fract_sites_IBD >= 0.95)
+
+g <- graph_from_data_frame(
+    high_ibd %>% select(sample1, sample2),
+    directed = FALSE
+)
+comps <- components(g)
+
+clusters_df <- tibble(
+    Sample  = names(comps$membership),
+    cluster = comps$membership
+)
+
+set.seed(42)
+representatives <- clusters_df %>%
+    group_by(cluster) %>%
+    slice_sample(n = 1) %>%
+    ungroup() %>%
+    pull(Sample)
+
+all_in_pairs <- unique(c(high_ibd$sample1, high_ibd$sample2))
+singletons   <- setdiff(metadata_ai$Sample, all_in_pairs)
+
+samples_to_keep <- c(singletons, representatives)
+samples_to_drop <- setdiff(all_in_pairs, representatives)
+
+remaining_samples <- metadata_ai %>%
+    filter(Sample %in% samples_to_keep)
+
+message("Total Africa+India all-samples (dom): ", nrow(metadata_ai))
+message("High-IBD pairs: ", nrow(high_ibd))
+message("Clusters: ", comps$no)
+message("Cluster size distribution:")
+print(table(comps$csize))
+message("Samples retained: ", length(samples_to_keep),
+        " (", length(singletons), " singletons + ",
+        length(representatives), " cluster representatives)")
+message("Samples dropped: ", length(samples_to_drop))
+
+readr::write_tsv(
+    remaining_samples,
+    "/mnt/storage13/leen/popgen_ethiopia_WGS/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen/pca/removal_similar_samples_africa_monoclonal/metadata_remaining_cluster_dedup_africa_india_dom.tsv"
+)
+
+readr::write_tsv(
+    tibble(Sample = samples_to_drop),
+    "/mnt/storage13/leen/popgen_ethiopia_WGS/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen/pca/removal_similar_samples_africa_monoclonal/cluster_dedup_samples_to_remove_africa_india_dom.tsv",
+    col_names = FALSE
+)
+
+readr::write_tsv(
+    clusters_df %>% arrange(cluster, Sample),
+    "/mnt/storage13/leen/popgen_ethiopia_WGS/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen/pca/removal_similar_samples_africa_monoclonal/ibd_clusters_africa_india_dom.tsv"
+)
+```
+
+```{bash}
+conda activate fastq2matrix
+
+wc -l /mnt/storage13/leen/popgen_ethiopia_WGS/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen/pca/removal_similar_samples_africa_monoclonal/cluster_dedup_samples_to_remove_africa_india_dom.tsv
+
+bcftools view -S ^cluster_dedup_samples_to_remove_africa_india_dom.tsv africa_india_dom.vcf.gz -Oz -o africa_india_dom_cluster_dedup.vcf.gz
+bcftools index africa_india_dom_cluster_dedup.vcf.gz
+
+plink --vcf africa_india_dom_cluster_dedup.vcf.gz --distance square --double-id --allow-extra-chr --out cluster_dedup_africa_india_dom
+```
+
+```{r}
+library(showtext)
+library(dplyr)
+library(ggplot2)
+library(ape)
+
+workdir  <- "/mnt/storage13/leen/popgen_ethiopia_WGS/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen/pca/removal_similar_samples_africa_monoclonal"
+prefix   <- "cluster_dedup_africa_india_dom"
+metadata <- "/mnt/storage13/leen/popgen_ethiopia_WGS/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen/pca/removal_similar_samples_africa_monoclonal/metadata_remaining_cluster_dedup_africa_india_dom.tsv"
+
+calc_variance_explained <- function(pc_points) {
+    vars <- round(pc_points$eig / sum(pc_points$eig) * 100, 1)
+    names(vars) <- paste0("PC", seq_len(length(vars)))
+    vars
+}
+
+met  <- read.table(metadata, sep = "\t", stringsAsFactors = FALSE, header = TRUE)
+dist <- read.table(file.path(workdir, paste0(prefix, ".dist")), header = FALSE)
+id   <- read.table(file.path(workdir, paste0(prefix, ".dist.id")))
+
+desc <- id %>% left_join(met, by = c("V1" = "Sample"))
+
+dist_m <- as.matrix(dist)
+colnames(dist_m) <- desc$V1
+rownames(dist_m) <- desc$V1
+
+cmd  <- cmdscale(dist_m, k = 10, eig = TRUE, x.ret = TRUE)
+vars <- calc_variance_explained(cmd)
+
+df <- as.data.frame(cmd$points, stringsAsFactors = FALSE)
+df$country   <- gsub("_", " ", desc$Country)
+df$sample_id <- rownames(df)
+colnames(df) <- gsub("V", "PC", colnames(df))
+
+color_by <- "country"
+country_colors <- c(
+  "Ethiopia" = "#E41A1C",
+  "Kenya" = "#377EB8",
+  "Tanzania" = "#4DAF4A",
+  "Uganda" = "#984EA3",
+  "Sudan" = "#FF7F00",
+  "Ghana" = "#FFFF33",
+  "Nigeria" = "#A65628",
+  "Mali" = "#eb88d4",
+  "Eritrea" = "darkblue",
+  "India" = "black",
+  "Thailand" = "darkgreen",
+  "Myanmar" = "lightsalmon"
+)
+
+p <- ggplot(data = df, aes(x = PC1, y = PC2, color = !!sym(color_by))) +
+    geom_point() +
+    scale_color_manual(values = country_colors) +
+    labs(x = paste0("PC1 (", vars["PC1"], "%)"),
+         y = paste0("PC2 (", vars["PC2"], "%)")) +
+    theme_classic() +
+    theme(legend.position = "bottom")
+ggsave(plot = p, filename = file.path(workdir, "figs/PC_12_africa_india_allsamples_dom.pdf"))
+
+q <- ggplot(data = df, aes(x = PC1, y = PC3, color = !!sym(color_by))) +
+    geom_point() +
+    scale_color_manual(values = country_colors) +
+    labs(x = paste0("PC1 (", vars["PC1"], "%)"),
+         y = paste0("PC3 (", vars["PC3"], "%)")) +
+    theme_classic() +
+    theme(legend.position = "bottom")
+ggsave(plot = q, filename = file.path(workdir, "figs/PC_13_africa_india_allsamples_dom.pdf"))
+
+tree <- nj(dist_m)
+write.tree(phy = tree, file = file.path(workdir, paste0(prefix, ".newick")))
+```
+
+## East + West Africa only — all samples with dominant alleles
+
+```{bash}
+conda activate fastq2matrix
+
+# Subset dom-processed VCF to East + West Africa samples
+bcftools view -S east_west_africa_only_samples.txt allsamples_dom.vcf.gz -Oz --force-samples -o ew_africa_dom.vcf.gz
+bcftools index ew_africa_dom.vcf.gz
+bcftools query -l ew_africa_dom.vcf.gz | wc -l
+```
+
+```{bash}
+# Conversion to matrix
+python ~/software/fastq2matrix/scripts/vcf2matrix.py \
+    --vcf ew_africa_dom.vcf.gz \
+    --no-iupacgt \
+    --na NA \
+    --threads 32
+```
+
+```{bash}
+# Calculate IBD
+conda activate ibd
+
+Rscript ~/software/malaria-hub/ibd/run_hmmIBD_per_category.R \
+-d . \
+-b ew_africa_dom.mat.bin \
+-m /mnt/storage13/leen/popgen_ethiopia_WGS/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen/pca/removal_similar_samples_africa_monoclonal/metadata_edit.csv \
+-c sample \
+--label_category type \
+--label_fws fws \
+--fws_th 0 \
+--label_id Sample \
+--maf 0.01 \
+--na_char NA \
+--remove_chr Pf3D7_API_v3,Pf_M76611
+
+~/software/hmmIBD/hmmIBD -i hmmIBD_sample_maf0.01.txt -o hmmIBD_sample_maf0.01_ew_africa_dom.out
+```
+
+```{r}
+# Single linkage clustering of East+West Africa all-samples (dom) at IBD >= 0.95,
+# retain one random representative per cluster.
+library(dplyr)
+library(tidyr)
+library(readr)
+library(igraph)
+
+metadata <- read.csv(
+  "/mnt/storage13/leen/popgen_ethiopia_WGS/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen/pca/metadata.csv",
+  sep = ","
+) %>%
+  select(wgs_id, Country, fws) %>%
+  mutate(Sample = gsub("_S[0-9]+$", "", wgs_id)) %>%
+  mutate(Sample = gsub("-D0", "_D0", Sample)) %>%
+  mutate(Sample = gsub("NG-A4488_", "", Sample)) %>%
+  mutate(Sample = gsub("_libLAN[0-9]+", "", Sample)) %>%
+  select(Sample, Country, fws) %>%
+  mutate(type = "sample")
+
+ew_samples <- read.table(
+    "/mnt/storage13/leen/popgen_ethiopia_WGS/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen/pca/removal_similar_samples_africa_monoclonal/east_west_africa_only_samples.txt",
+    header = FALSE, stringsAsFactors = FALSE
+)$V1
+metadata_ew <- metadata %>% filter(Sample %in% ew_samples)
+
+all_hmmibd_fract <- read.table(
+    "/mnt/storage13/leen/popgen_ethiopia_WGS/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen/pca/removal_similar_samples_africa_monoclonal/hmmIBD_sample_maf0.01_ew_africa_dom.out.hmm_fract.txt",
+    header = TRUE, stringsAsFactors = FALSE
+)
+
+high_ibd <- all_hmmibd_fract %>%
+    filter(fract_sites_IBD >= 0.95)
+
+g <- graph_from_data_frame(
+    high_ibd %>% select(sample1, sample2),
+    directed = FALSE
+)
+comps <- components(g)
+
+clusters_df <- tibble(
+    Sample  = names(comps$membership),
+    cluster = comps$membership
+)
+
+set.seed(42)
+representatives <- clusters_df %>%
+    group_by(cluster) %>%
+    slice_sample(n = 1) %>%
+    ungroup() %>%
+    pull(Sample)
+
+all_in_pairs <- unique(c(high_ibd$sample1, high_ibd$sample2))
+singletons   <- setdiff(metadata_ew$Sample, all_in_pairs)
+
+samples_to_keep <- c(singletons, representatives)
+samples_to_drop <- setdiff(all_in_pairs, representatives)
+
+remaining_samples <- metadata_ew %>%
+    filter(Sample %in% samples_to_keep)
+
+message("Total East+West Africa all-samples (dom): ", nrow(metadata_ew))
+message("High-IBD pairs: ", nrow(high_ibd))
+message("Clusters: ", comps$no)
+message("Cluster size distribution:")
+print(table(comps$csize))
+message("Samples retained: ", length(samples_to_keep),
+        " (", length(singletons), " singletons + ",
+        length(representatives), " cluster representatives)")
+message("Samples dropped: ", length(samples_to_drop))
+
+readr::write_tsv(
+    remaining_samples,
+    "/mnt/storage13/leen/popgen_ethiopia_WGS/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen/pca/removal_similar_samples_africa_monoclonal/metadata_remaining_cluster_dedup_ew_africa_dom.tsv"
+)
+
+readr::write_tsv(
+    tibble(Sample = samples_to_drop),
+    "/mnt/storage13/leen/popgen_ethiopia_WGS/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen/pca/removal_similar_samples_africa_monoclonal/cluster_dedup_samples_to_remove_ew_africa_dom.tsv",
+    col_names = FALSE
+)
+
+readr::write_tsv(
+    clusters_df %>% arrange(cluster, Sample),
+    "/mnt/storage13/leen/popgen_ethiopia_WGS/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen/pca/removal_similar_samples_africa_monoclonal/ibd_clusters_ew_africa_dom.tsv"
+)
+```
+
+```{bash}
+conda activate fastq2matrix
+
+wc -l /mnt/storage13/leen/popgen_ethiopia_WGS/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen/pca/removal_similar_samples_africa_monoclonal/cluster_dedup_samples_to_remove_ew_africa_dom.tsv
+
+bcftools view -S ^cluster_dedup_samples_to_remove_ew_africa_dom.tsv ew_africa_dom.vcf.gz -Oz -o ew_africa_dom_cluster_dedup.vcf.gz
+bcftools index ew_africa_dom_cluster_dedup.vcf.gz
+
+plink --vcf ew_africa_dom_cluster_dedup.vcf.gz --distance square --double-id --allow-extra-chr --out cluster_dedup_ew_africa_dom
+```
+
+```{r}
+library(showtext)
+library(dplyr)
+library(ggplot2)
+library(ape)
+
+workdir  <- "/mnt/storage13/leen/popgen_ethiopia_WGS/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen/pca/removal_similar_samples_africa_monoclonal"
+prefix   <- "cluster_dedup_ew_africa_dom"
+metadata <- "/mnt/storage13/leen/popgen_ethiopia_WGS/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen/pca/removal_similar_samples_africa_monoclonal/metadata_remaining_cluster_dedup_ew_africa_dom.tsv"
+
+calc_variance_explained <- function(pc_points) {
+    vars <- round(pc_points$eig / sum(pc_points$eig) * 100, 1)
+    names(vars) <- paste0("PC", seq_len(length(vars)))
+    vars
+}
+
+met  <- read.table(metadata, sep = "\t", stringsAsFactors = FALSE, header = TRUE)
+dist <- read.table(file.path(workdir, paste0(prefix, ".dist")), header = FALSE)
+id   <- read.table(file.path(workdir, paste0(prefix, ".dist.id")))
+
+desc <- id %>% left_join(met, by = c("V1" = "Sample"))
+
+dist_m <- as.matrix(dist)
+colnames(dist_m) <- desc$V1
+rownames(dist_m) <- desc$V1
+
+cmd  <- cmdscale(dist_m, k = 10, eig = TRUE, x.ret = TRUE)
+vars <- calc_variance_explained(cmd)
+
+df <- as.data.frame(cmd$points, stringsAsFactors = FALSE)
+df$country   <- gsub("_", " ", desc$Country)
+df$sample_id <- rownames(df)
+colnames(df) <- gsub("V", "PC", colnames(df))
+
+color_by <- "country"
+country_colors <- c(
+  "Ethiopia" = "#E41A1C",
+  "Kenya" = "#377EB8",
+  "Tanzania" = "#4DAF4A",
+  "Uganda" = "#984EA3",
+  "Sudan" = "#FF7F00",
+  "Ghana" = "#FFFF33",
+  "Nigeria" = "#A65628",
+  "Mali" = "#eb88d4",
+  "Eritrea" = "darkblue",
+  "India" = "black",
+  "Thailand" = "darkgreen",
+  "Myanmar" = "lightsalmon"
+)
+
+p <- ggplot(data = df, aes(x = PC1, y = PC2, color = !!sym(color_by))) +
+    geom_point() +
+    scale_color_manual(values = country_colors) +
+    labs(x = paste0("PC1 (", vars["PC1"], "%)"),
+         y = paste0("PC2 (", vars["PC2"], "%)")) +
+    theme_classic() +
+    theme(legend.position = "bottom")
+ggsave(plot = p, filename = file.path(workdir, "figs/PC_12_ew_africa_allsamples_dom.pdf"))
+
+q <- ggplot(data = df, aes(x = PC1, y = PC3, color = !!sym(color_by))) +
+    geom_point() +
+    scale_color_manual(values = country_colors) +
+    labs(x = paste0("PC1 (", vars["PC1"], "%)"),
+         y = paste0("PC3 (", vars["PC3"], "%)")) +
+    theme_classic() +
+    theme(legend.position = "bottom")
+ggsave(plot = q, filename = file.path(workdir, "figs/PC_13_ew_africa_allsamples_dom.pdf"))
+
+tree <- nj(dist_m)
+write.tree(phy = tree, file = file.path(workdir, paste0(prefix, ".newick")))
+```

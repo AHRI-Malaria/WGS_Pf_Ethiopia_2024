@@ -1,6 +1,7 @@
 
 library(ggplot2)
 library(patchwork)
+library(dplyr)
 setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
 
 # Read the data
@@ -20,6 +21,15 @@ site_medians <- meta %>%
   group_by(site) %>%
   summarise(median_fws = median(fws, na.rm = TRUE))
 
+# Calculate proportion of polyclonal samples (Fws < 0.95) per site
+site_polyclonal <- meta %>%
+  group_by(site) %>%
+  summarise(
+    n = n(),
+    n_polyclonal = sum(fws < 0.95, na.rm = TRUE),
+    prop_polyclonal = n_polyclonal / n
+  )
+  
 site_colors <- c(
   "Arba Minch" = "#F8766D",       # Red/pink
   "Gambella" = "#B79F00",         # Yellow/gold
