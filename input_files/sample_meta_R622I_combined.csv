@@ -1,0 +1,121 @@
+Sample,hrp_deletion_call,s_Sample,Phenotype,site,Study,fws,hrp_status,Chrom,Position,Ref,Alt,Genotype
+AC002_D0,hrp2+/hrp3+,AC002-D0_S27,TS,Gambella,TES,0.991,wild,Pf3D7_13_v3,1725133,C,A,0/0
+AC004_D0,hrp2+/hrp3+,AC004-D0_S1,TF,Gambella,TES,0.99,wild,Pf3D7_13_v3,1725133,C,A,0/0
+AC011_D0,hrp2+/hrp3+,AC011-D0_S28,TS,Gambella,TES,0.648,wild,Pf3D7_13_v3,1725133,C,A,0/0
+AC034_D0,hrp2+/hrp3+,AC034-D0_S29,TS,Gambella,TES,0.981,wild,Pf3D7_13_v3,1725133,C,A,0/0
+AC050_D0,hrp2+/hrp3+,AC050-D0_S30,TS,Gambella,TES,0.777,wild,Pf3D7_13_v3,1725133,C,A,0/0
+AC069_D0,hrp2+/hrp3+,AC069-D0_S2,TS,Gambella,TES,0.737,wild,Pf3D7_13_v3,1725133,C,A,0/0
+AC084_D0,hrp2-/hrp3+,AC084-D0_S3,TF,Gambella,TES,0.755,hrp2_only,Pf3D7_13_v3,1725133,C,A,0/0
+AC091_D0,hrp2+/hrp3+,AC091-D0_S4,TF,Gambella,TES,0.733,wild,Pf3D7_13_v3,1725133,C,A,0/0
+GM002_D0,hrp2+/hrp3-,GM002-D0_S31,TS,Gondar,TES,0.976,hrp3_only,Pf3D7_13_v3,1725133,C,A,1/1
+GM046_D0,hrp2+/hrp3-,GM046-D0_S5,TF,Gondar,TES,0.973,hrp3_only,Pf3D7_13_v3,1725133,C,A,1/1
+GM068_D0,hrp2+/hrp3-,GM068-D0_S32,TS,Gondar,TES,0.616,hrp3_only,Pf3D7_13_v3,1725133,C,A,0/1
+GM070_D0,hrp2-/hrp3-,GM070-D0_S6,TF,Gondar,TES,0.968,mutant,Pf3D7_13_v3,1725133,C,A,0/0
+MM015_D0,hrp2+/hrp3+,MM015-D0_S17,TS,Mizan,TES,0.991,wild,Pf3D7_13_v3,1725133,C,A,0/0
+MM033_D0,hrp2+/hrp3+,MM033-D0_S7,TF,Mizan,TES,0.982,wild,Pf3D7_13_v3,1725133,C,A,0/0
+MM037_D0,hrp2+/hrp3+,MM037-D0_S8,TF,Mizan,TES,0.935,wild,Pf3D7_13_v3,1725133,C,A,0/0
+MM042_D0,hrp2+/hrp3+,MM042-D0_S19,TS,Mizan,TES,0.965,wild,Pf3D7_13_v3,1725133,C,A,0/0
+MM047_D0,hrp2+/hrp3+,MM047-D0_S9,TF,Mizan,TES,0.983,wild,Pf3D7_13_v3,1725133,C,A,0/0
+AC074_D0,hrp2-/hrp3+,NG-A4488_AC074_D0_libLAN2255,TS,Gambella,TES,0.979,hrp2_only,Pf3D7_13_v3,1725133,C,A,0/0
+GM025_D0,hrp2-/hrp3-,NG-A4488_GM025_D0_libLAN2256,TS,Gondar,TES,0.969,mutant,Pf3D7_13_v3,1725133,C,A,1/1
+GM027_D0,hrp2-/hrp3-,NG-A4488_GM027_D0_libLAN2243,TF,Gondar,TES,0.936,mutant,Pf3D7_13_v3,1725133,C,A,1/1
+GM045_D0,hrp2+/hrp3-,NG-A4488_GM045_D0_libLAN2244,TF,Gondar,TES,0.844,hrp3_only,Pf3D7_13_v3,1725133,C,A,0/0
+GM065_D0,hrp2-/hrp3-,NG-A4488_GM065_D0_libLAN2257,TS,Gondar,TES,0.971,mutant,Pf3D7_13_v3,1725133,C,A,1/1
+GM071_D0,hrp2+/hrp3-,NG-A4488_GM071_D0_libLAN2258,TS,Gondar,TES,0.972,hrp3_only,Pf3D7_13_v3,1725133,C,A,1/1
+GM076_D0,hrp2-/hrp3-,NG-A4488_GM076_D0_libLAN2245,TF,Gondar,TES,0.971,mutant,Pf3D7_13_v3,1725133,C,A,0/0
+MM011_D0,hrp2-/hrp3-,NG-A4488_MM011_D0_libLAN2259,TS,Mizan,TES,0.971,mutant,Pf3D7_13_v3,1725133,C,A,0/0
+MM013_D0,hrp2+/hrp3+,NG-A4488_MM013_D0_libLAN2246,TF,Mizan,TES,0.754,wild,Pf3D7_13_v3,1725133,C,A,0/0
+MM051_D0,hrp2-/hrp3-,NG-A4488_MM051_D0_libLAN2260,TS,Mizan,TES,0.977,mutant,Pf3D7_13_v3,1725133,C,A,0/0
+MM068_D0,hrp2+/hrp3+,NG-A4488_MM068_D0_libLAN2261,TS,Mizan,TES,0.96,wild,Pf3D7_13_v3,1725133,C,A,0/0
+MM081_D0,hrp2+/hrp3+,NG-A4488_MM081_D0_libLAN2262,TS,Mizan,TES,0.988,wild,Pf3D7_13_v3,1725133,C,A,0/0
+MM086_D0,hrp2+/hrp3+,NG-A4488_MM086_D0_libLAN2247,TF,Mizan,TES,0.937,wild,Pf3D7_13_v3,1725133,C,A,0/0
+WG24ACHC001,hrp2+/hrp3+,WG24ACHC001,NA,Gambella,Leucodepletion,0.983,wild,Pf3D7_13_v3,1725133,C,A,0/0
+WG24ACHC002,hrp2+/hrp3+,WG24ACHC002,NA,Gambella,Leucodepletion,0.836,wild,Pf3D7_13_v3,1725133,C,A,0/0
+WG24ACHC003,hrp2+/hrp3+,WG24ACHC003,NA,Gambella,Leucodepletion,0.978,wild,Pf3D7_13_v3,1725133,C,A,0/0
+WG24ACHC004,hrp2+/hrp3+,WG24ACHC004,NA,Gambella,Leucodepletion,0.989,wild,Pf3D7_13_v3,1725133,C,A,0/0
+WG24ACHC005,hrp2+/hrp3+,WG24ACHC005,NA,Gambella,Leucodepletion,0.975,wild,Pf3D7_13_v3,1725133,C,A,0/0
+WG24ACHC006,hrp2+/hrp3+,WG24ACHC006,NA,Gambella,Leucodepletion,0.986,wild,Pf3D7_13_v3,1725133,C,A,0/0
+WG24ACHC007,hrp2+/hrp3+,WG24ACHC007,NA,Gambella,Leucodepletion,0.989,wild,Pf3D7_13_v3,1725133,C,A,0/0
+WG24ACHC008,hrp2+/hrp3+,WG24ACHC008,NA,Gambella,Leucodepletion,0.982,wild,Pf3D7_13_v3,1725133,C,A,0/0
+WG24ACHC009,hrp2+/hrp3+,WG24ACHC009,NA,Gambella,Leucodepletion,0.983,wild,Pf3D7_13_v3,1725133,C,A,0/0
+WG24ACHC010,hrp2+/hrp3+,WG24ACHC010,NA,Gambella,Leucodepletion,0.984,wild,Pf3D7_13_v3,1725133,C,A,0/0
+WG24ACHC011,hrp2+/hrp3+,WG24ACHC011,NA,Gambella,Leucodepletion,0.579,wild,Pf3D7_13_v3,1725133,C,A,0/0
+WG24ACHC012,hrp2+/hrp3+,WG24ACHC012,NA,Gambella,Leucodepletion,0.765,wild,Pf3D7_13_v3,1725133,C,A,0/0
+WG24ACHC014,hrp2+/hrp3+,WG24ACHC014,NA,Gambella,Leucodepletion,0.985,wild,Pf3D7_13_v3,1725133,C,A,0/0
+WG24ACHC015,hrp2+/hrp3+,WG24ACHC015,NA,Gambella,Leucodepletion,0.961,wild,Pf3D7_13_v3,1725133,C,A,0/0
+WG24ACHC016,hrp2+/hrp3+,WG24ACHC016,NA,Gambella,Leucodepletion,0.672,wild,Pf3D7_13_v3,1725133,C,A,0/0
+WG24ACHC017,hrp2+/hrp3+,WG24ACHC017,NA,Gambella,Leucodepletion,0.81,wild,Pf3D7_13_v3,1725133,C,A,0/0
+WG24ACHC018,hrp2+/hrp3+,WG24ACHC018,NA,Gambella,Leucodepletion,0.948,wild,Pf3D7_13_v3,1725133,C,A,0/0
+WG24ACHC019,hrp2+/hrp3+,WG24ACHC019,NA,Gambella,Leucodepletion,0.983,wild,Pf3D7_13_v3,1725133,C,A,0/0
+WG24ACHC020,hrp2+/hrp3+,WG24ACHC020,NA,Gambella,Leucodepletion,0.76,wild,Pf3D7_13_v3,1725133,C,A,0/0
+WG24ACHC021,hrp2+/hrp3+,WG24ACHC021,NA,Gambella,Leucodepletion,0.964,wild,Pf3D7_13_v3,1725133,C,A,0/0
+WG24ACHC022,hrp2+/hrp3+,WG24ACHC022,NA,Gambella,Leucodepletion,0.983,wild,Pf3D7_13_v3,1725133,C,A,0/0
+WG24ALHC001,hrp2+/hrp3+,WG24ALHC001,NA,Arba Minch,Leucodepletion,0.976,wild,Pf3D7_13_v3,1725133,C,A,0/0
+WG24ALHC002,hrp2+/hrp3+,WG24ALHC002,NA,Arba Minch,Leucodepletion,0.731,wild,Pf3D7_13_v3,1725133,C,A,0/0
+WG24ALHC003,hrp2+/hrp3-,WG24ALHC003,NA,Arba Minch,Leucodepletion,0.698,hrp3_only,Pf3D7_13_v3,1725133,C,A,0/0
+WG24ALHC004,hrp2+/hrp3-,WG24ALHC004,NA,Arba Minch,Leucodepletion,0.565,hrp3_only,Pf3D7_13_v3,1725133,C,A,0/0
+WG24ALHC006,hrp2+/hrp3+,WG24ALHC006,NA,Arba Minch,Leucodepletion,0.972,wild,Pf3D7_13_v3,1725133,C,A,0/0
+WG24ALHC007,hrp2+/hrp3+,WG24ALHC007,NA,Arba Minch,Leucodepletion,0.912,wild,Pf3D7_13_v3,1725133,C,A,0/0
+WG24ALHC009,hrp2+/hrp3+,WG24ALHC009,NA,Arba Minch,Leucodepletion,0.954,wild,Pf3D7_13_v3,1725133,C,A,0/0
+WG24ALHC010,hrp2+/hrp3-,WG24ALHC010,NA,Arba Minch,Leucodepletion,0.782,hrp3_only,Pf3D7_13_v3,1725133,C,A,0/0
+WG24ALHC012,hrp2+/hrp3-,WG24ALHC012,NA,Arba Minch,Leucodepletion,0.857,hrp3_only,Pf3D7_13_v3,1725133,C,A,0/0
+WG24ALHC013,hrp2+/hrp3-,WG24ALHC013,NA,Arba Minch,Leucodepletion,0.963,hrp3_only,Pf3D7_13_v3,1725133,C,A,0/0
+WG24ALHC014,hrp2+/hrp3-,WG24ALHC014,NA,Arba Minch,Leucodepletion,0.96,hrp3_only,Pf3D7_13_v3,1725133,C,A,0/0
+WG24ALHC015,hrp2+/hrp3-,WG24ALHC015,NA,Arba Minch,Leucodepletion,0.584,hrp3_only,Pf3D7_13_v3,1725133,C,A,0/0
+WG24ALHC016,hrp2+/hrp3+,WG24ALHC016,NA,Arba Minch,Leucodepletion,0.976,wild,Pf3D7_13_v3,1725133,C,A,0/0
+WG24ALHC017,hrp2+/hrp3+,WG24ALHC017,NA,Arba Minch,Leucodepletion,0.957,wild,Pf3D7_13_v3,1725133,C,A,0/0
+WG24ALHC018,hrp2+/hrp3+,WG24ALHC018,NA,Arba Minch,Leucodepletion,0.977,wild,Pf3D7_13_v3,1725133,C,A,0/0
+WG24ALHC019,hrp2-/hrp3-,WG24ALHC019,NA,Arba Minch,Leucodepletion,0.974,mutant,Pf3D7_13_v3,1725133,C,A,0/0
+WG24ALHC020,hrp2+/hrp3-,WG24ALHC020,NA,Arba Minch,Leucodepletion,0.973,hrp3_only,Pf3D7_13_v3,1725133,C,A,0/0
+WG24GMHC001,hrp2-/hrp3-,WG24GMHC001,NA,Gondar,Leucodepletion,0.973,mutant,Pf3D7_13_v3,1725133,C,A,1/1
+WG24GMHC002,hrp2+/hrp3-,WG24GMHC002,NA,Gondar,Leucodepletion,0.983,hrp3_only,Pf3D7_13_v3,1725133,C,A,0/0
+WG24GMHC003,hrp2+/hrp3-,WG24GMHC003,NA,Gondar,Leucodepletion,0.888,hrp3_only,Pf3D7_13_v3,1725133,C,A,1/1
+WG24GMHC005,hrp2-/hrp3-,WG24GMHC005,NA,Gondar,Leucodepletion,0.974,mutant,Pf3D7_13_v3,1725133,C,A,1/1
+WG24GMHC007,hrp2+/hrp3+,WG24GMHC007,NA,Gondar,Leucodepletion,0.973,wild,Pf3D7_13_v3,1725133,C,A,0/0
+WG24GMHC008,hrp2+/hrp3-,WG24GMHC008,NA,Gondar,Leucodepletion,0.972,hrp3_only,Pf3D7_13_v3,1725133,C,A,0/0
+WG24GMHC009,hrp2+/hrp3-,WG24GMHC009,NA,Gondar,Leucodepletion,0.977,hrp3_only,Pf3D7_13_v3,1725133,C,A,0/0
+WG24GMHC011,hrp2+/hrp3-,WG24GMHC011,NA,Gondar,Leucodepletion,0.76,hrp3_only,Pf3D7_13_v3,1725133,C,A,0/1
+WG24GMHC013,hrp2+/hrp3-,WG24GMHC013,NA,Gondar,Leucodepletion,0.97,hrp3_only,Pf3D7_13_v3,1725133,C,A,0/0
+WG24GMHC014,hrp2-/hrp3-,WG24GMHC014,NA,Gondar,Leucodepletion,0.823,mutant,Pf3D7_13_v3,1725133,C,A,1/1
+WG24GMHC015,hrp2+/hrp3-,WG24GMHC015,NA,Gondar,Leucodepletion,0.969,hrp3_only,Pf3D7_13_v3,1725133,C,A,0/0
+WG24GMHC016,hrp2-/hrp3-,WG24GMHC016,NA,Gondar,Leucodepletion,0.968,mutant,Pf3D7_13_v3,1725133,C,A,0/0
+WG24GMHC017,hrp2-/hrp3-,WG24GMHC017,NA,Gondar,Leucodepletion,0.966,mutant,Pf3D7_13_v3,1725133,C,A,0/0
+WG24GMHC018,hrp2-/hrp3-,WG24GMHC018,NA,Gondar,Leucodepletion,0.977,mutant,Pf3D7_13_v3,1725133,C,A,0/0
+WG24GMHC019,hrp2+/hrp3-,WG24GMHC019,NA,Gondar,Leucodepletion,0.975,hrp3_only,Pf3D7_13_v3,1725133,C,A,1/1
+WG24GMHC020,hrp2-/hrp3-,WG24GMHC020,NA,Gondar,Leucodepletion,0.972,mutant,Pf3D7_13_v3,1725133,C,A,0/0
+WG24MFHC001,hrp2-/hrp3-,WG24MFHC001,NA,Metehera Fentale,Leucodepletion,0.973,mutant,Pf3D7_13_v3,1725133,C,A,0/0
+WG24MFHC002,hrp2+/hrp3-,WG24MFHC002,NA,Metehera Fentale,Leucodepletion,0.941,hrp3_only,Pf3D7_13_v3,1725133,C,A,0/0
+WG24MFHC004,hrp2+/hrp3-,WG24MFHC004,NA,Metehera Fentale,Leucodepletion,0.967,hrp3_only,Pf3D7_13_v3,1725133,C,A,0/0
+WG24MFHC005,hrp2+/hrp3-,WG24MFHC005,NA,Metehera Fentale,Leucodepletion,0.942,hrp3_only,Pf3D7_13_v3,1725133,C,A,0/0
+WG24MFHC006,hrp2+/hrp3+,WG24MFHC006,NA,Metehera Fentale,Leucodepletion,0.96,wild,Pf3D7_13_v3,1725133,C,A,0/0
+WG24MFHC007,hrp2+/hrp3-,WG24MFHC007,NA,Metehera Fentale,Leucodepletion,0.951,hrp3_only,Pf3D7_13_v3,1725133,C,A,0/0
+WG24MFHC008,hrp2+/hrp3-,WG24MFHC008,NA,Metehera Fentale,Leucodepletion,0.949,hrp3_only,Pf3D7_13_v3,1725133,C,A,0/0
+WG24MFHC009,hrp2-/hrp3-,WG24MFHC009,NA,Metehera Fentale,Leucodepletion,0.797,mutant,Pf3D7_13_v3,1725133,C,A,0/0
+WG24MFHC010,hrp2+/hrp3-,WG24MFHC010,NA,Metehera Fentale,Leucodepletion,0.978,hrp3_only,Pf3D7_13_v3,1725133,C,A,0/0
+WG24MFHC011,hrp2+/hrp3-,WG24MFHC011,NA,Metehera Fentale,Leucodepletion,0.948,hrp3_only,Pf3D7_13_v3,1725133,C,A,0/0
+WG24MFHC012,hrp2+/hrp3-,WG24MFHC012,NA,Metehera Fentale,Leucodepletion,0.941,hrp3_only,Pf3D7_13_v3,1725133,C,A,0/0
+WG24MFHC013,hrp2+/hrp3+,WG24MFHC013,NA,Metehera Fentale,Leucodepletion,0.725,wild,Pf3D7_13_v3,1725133,C,A,0/0
+WG24MFHC014,hrp2+/hrp3-,WG24MFHC014,NA,Metehera Fentale,Leucodepletion,0.97,hrp3_only,Pf3D7_13_v3,1725133,C,A,0/0
+WG24MFHC015,hrp2+/hrp3-,WG24MFHC015,NA,Metehera Fentale,Leucodepletion,0.946,hrp3_only,Pf3D7_13_v3,1725133,C,A,0/0
+WG24MFHC016,hrp2+/hrp3-,WG24MFHC016,NA,Metehera Fentale,Leucodepletion,0.957,hrp3_only,Pf3D7_13_v3,1725133,C,A,0/0
+WG24MFHC017,hrp2+/hrp3+,WG24MFHC017,NA,Metehera Fentale,Leucodepletion,0.701,wild,Pf3D7_13_v3,1725133,C,A,0/0
+WG24MFHC018,hrp2-/hrp3-,WG24MFHC018,NA,Metehera Fentale,Leucodepletion,0.966,mutant,Pf3D7_13_v3,1725133,C,A,0/0
+WG24MFHC019,hrp2+/hrp3+,WG24MFHC019,NA,Metehera Fentale,Leucodepletion,0.967,wild,Pf3D7_13_v3,1725133,C,A,0/0
+WG24MFHC020,hrp2-/hrp3-,WG24MFHC020,NA,Metehera Fentale,Leucodepletion,0.97,mutant,Pf3D7_13_v3,1725133,C,A,0/0
+WG24MHC002,hrp2+/hrp3+,WG24MHC002,NA,Mizan,Leucodepletion,0.931,wild,Pf3D7_13_v3,1725133,C,A,0/0
+WG24MHC004,hrp2-/hrp3+,WG24MHC004,NA,Mizan,Leucodepletion,0.964,hrp2_only,Pf3D7_13_v3,1725133,C,A,0/0
+WG24MHC005,hrp2+/hrp3+,WG24MHC005,NA,Mizan,Leucodepletion,0.984,wild,Pf3D7_13_v3,1725133,C,A,0/0
+WG24MHC008,hrp2+/hrp3+,WG24MHC008,NA,Mizan,Leucodepletion,0.74,wild,Pf3D7_13_v3,1725133,C,A,0/0
+WG24MHC009,hrp2+/hrp3+,WG24MHC009,NA,Mizan,Leucodepletion,0.658,wild,Pf3D7_13_v3,1725133,C,A,0/0
+WG24MHC011,hrp2+/hrp3+,WG24MHC011,NA,Mizan,Leucodepletion,0.984,wild,Pf3D7_13_v3,1725133,C,A,0/0
+WG24MHC014,hrp2+/hrp3+,WG24MHC014,NA,Mizan,Leucodepletion,0.982,wild,Pf3D7_13_v3,1725133,C,A,0/0
+WG24MHC015,hrp2-/hrp3+,WG24MHC015,NA,Mizan,Leucodepletion,0.878,hrp2_only,Pf3D7_13_v3,1725133,C,A,0/0
+WG24MHC016,hrp2-/hrp3+,WG24MHC016,NA,Mizan,Leucodepletion,0.979,hrp2_only,Pf3D7_13_v3,1725133,C,A,0/0
+WG24MHC017,hrp2+/hrp3+,WG24MHC017,NA,Mizan,Leucodepletion,0.708,wild,Pf3D7_13_v3,1725133,C,A,0/0
+WG24MHC018,hrp2+/hrp3+,WG24MHC018,NA,Mizan,Leucodepletion,0.965,wild,Pf3D7_13_v3,1725133,C,A,0/0
+WG24MHC019,hrp2+/hrp3-,WG24MHC019,NA,Mizan,Leucodepletion,0.975,hrp3_only,Pf3D7_13_v3,1725133,C,A,0/0
+WG24MHC021,hrp2+/hrp3+,WG24MHC021,NA,Mizan,Leucodepletion,0.706,wild,Pf3D7_13_v3,1725133,C,A,0/0
+WG24MHC022,hrp2+/hrp3+,WG24MHC022,NA,Mizan,Leucodepletion,0.986,wild,Pf3D7_13_v3,1725133,C,A,0/0
+WG24MHC023,hrp2-/hrp3-,WG24MHC023,NA,Mizan,Leucodepletion,0.954,mutant,Pf3D7_13_v3,1725133,C,A,0/0
+WG24MHC024,hrp2+/hrp3+,WG24MHC024,NA,Mizan,Leucodepletion,0.978,wild,Pf3D7_13_v3,1725133,C,A,0/0
+WG24MHC026,hrp2+/hrp3+,WG24MHC026,NA,Mizan,Leucodepletion,0.694,wild,Pf3D7_13_v3,1725133,C,A,0/0

@@ -53,13 +53,14 @@ ggplot(meta, aes(x = site, y = fws, color = site)) +
   
   # n= sample count labels
   geom_text(data = site_counts, aes(x = site, y = 1.02, label = label),
-            inherit.aes = FALSE, size = 3, color = "black") +
+            inherit.aes = FALSE, size = 4, color = "black") +
   
   scale_color_manual(values = site_colors) +
   
   theme_test() +
   labs(y = expression(F[WS]), x = "") +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+  theme(axis.text.x = element_text(angle = 45, hjust = 1,size = 12),
+        axis.text.y = element_text(size = 12),
         legend.position = "none")
 
 ggsave("figs/fws.pdf", width=3, height=5)
