@@ -9,7 +9,7 @@ Scripts are listed in the order they are run in the analysis.
 
 | Step | Description | Script |
 |------|-------------|--------|
-| 1 | Remove human reads from FASTQ files, map reads to the reference and call variants | [`fastq2vcf.sh`](fastq2vcf.sh) |
+| 1 | Remove human reads from FASTQ files, map reads to the reference and call variants | [`fastq2vcf.sh`](https://github.com/leenvh/WGS_Pf_Ethiopia_2024/blob/main/fastq2matrix/fastq2vcf.sh) |
 | 2 | Import per-sample VCFs into a database and merge | [`mergevcfs.sh`](mergevcfs.sh) |
 | 3 | Filter the merged VCF and convert it to a genotype matrix | [`vcf2matrix.sh`](vcf2matrix.sh) |
 
@@ -37,4 +37,7 @@ Scripts are listed in the order they are run in the analysis.
 |-------------|--------|
 | Sampling location maps | [`sampling_maps.R`](sampling_maps.R) |
 | Pie-chart maps of *k13*, *crt* and *hrp* markers | [`piecharts_K13_CRT_hrp.R`](piecharts_K13_CRT_hrp.R) |
+
+
+## Requirements
 
