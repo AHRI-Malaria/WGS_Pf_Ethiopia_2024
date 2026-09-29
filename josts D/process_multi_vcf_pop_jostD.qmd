@@ -1,0 +1,1018 @@
+---
+title: "JostD for ethiopia district from multiallelic VCF"
+format: 
+    html:
+        code-fold: true
+        code-tools: true
+        embed-resources: true
+        highlight-style: github 
+        theme: cosmo
+        toc: true
+        toc-depth: 3
+        toc-location: right
+        number-sections: true
+        fig-width: 10
+        fig-height: 8
+excute:
+  enable: false
+  cache: true
+  warning: false
+  message: false
+  error: false
+  eval: false
+---
+
+
+```{bash, eval = F}
+docker run -it nickjhathaway/elucidator:develop elucidator vcfToBed --vcfFile /mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/ethiopia_vcf/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen.filt.csq.bi.GT.miss0.2.vqslod.filt.snps_ethiopia.vcf.gz --out 012026_pf_mgen_ug_india_eritrea_ethiopia_popgen.filt.GT.miss0.2.vqslod.filt.snps.region.bed.gz
+
+```
+
+```{bash, eval=F}
+bcftools view -S /mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/ethiopia_vcf/ethiopia_sample.txt /mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen.filt.csq.GT.miss0.2.vqslod.filt.snps.vcf.gz -Oz -o /mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/ethiopia_vcf/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen.filt.csq.GT.miss0.2.vqslod.filt.snps.ethio_mult.vcf.gz
+
+```
+
+### once processing the vcf file and change it in to a long format file with allele freqs, then we can calculate the jostD for each position between different populations.
+```{r , eval=F}
+library(vcfR)
+library(dplyr)
+library(tidyr)
+library(purrr)
+library(vegan)
+
+#devtools::install_github(repo="knausb/vcfR")
+
+# read in VCF
+vcf <- read.vcfR(
+  "/mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/ethiopia_vcf/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen.filt.csq.GT.miss0.2.vqslod.filt.snps.ethio_mult.vcf.gz",
+  verbose = FALSE
+)
+
+# get variant fixed info
+fix <- as_tibble(getFIX(vcf)) %>%
+  rowwise() %>%
+  unite(all_calls, REF, ALT, sep = ",", remove = F)
+
+# Extract GT as a character matrix: variants (rows) x samples (cols)
+gt <- extract.gt(vcf, element = "GT", as.numeric = FALSE)
+
+# Extract AD as a character matrix: variants (rows) x samples (cols)
+AD <- extract.gt(vcf, element = "AD", as.numeric = FALSE)
+
+# combine AD and fix
+fix_with_AD = bind_cols(
+  fix,
+  as_tibble(AD)
+)
+
+# convert from wide to long format so that AD and the variants can be put together
+fix_with_AD_gat = fix_with_AD %>%
+  gather(sample, AD, 9:ncol(.)) %>%
+  select(-ID, -ALT, -REF) %>%
+  mutate(
+    all_calls = strsplit(all_calls, split = ","),
+    AD = strsplit(AD, split = ",")
+  ) %>%
+  unnest(c(all_calls, AD)) %>%
+  mutate(AD = as.numeric(AD)) %>%
+  dplyr::rename(base = all_calls) # rename all_calls to base for clarity
+
+
+# filter to SNPS that have marked as pass and to only calls that have greater than 0 allele depth (so actually present in data)
+fix_with_AD_gat_filt = fix_with_AD_gat %>%
+  filter(FILTER == "PASS", AD > 0)
+write.csv(
+  fix_with_AD_gat_filt,
+  "/mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/jostD_stat/multialleic/fix_with_AD_gat_filt.csv",
+  row.names = F
+)
+
+fix_with_AD_gat_filt_samples = fix_with_AD_gat_filt %>%
+  select(sample) %>%
+  unique()
+write.csv(
+  fix_with_AD_gat_filt_samples,
+  "/mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/jostD_stat/multialleic/fix_with_AD_gat_filt_samples.csv",
+  row.names = F
+)
+
+
+```
+
+
+```{r,eval=F}
+# fix_with_AD_gat_filt <- read.csv()
+Metadata_Popgen_Ethiopia_withfws = read.csv(
+  "/mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024//metadata/sample_meta_with_hrp_status.tsv",
+  sep = "\t"
+)
+
+# filtering to sample that I know populations for
+fix_with_AD_gat_filt_samples_ethiopia_known = fix_with_AD_gat_filt %>%
+  filter(sample %in% Metadata_Popgen_Ethiopia_withfws$Sample) %>%
+  group_by(CHROM, POS, sample) %>%
+  mutate(total_AD = sum(AD)) %>%
+  mutate(wsaf = AD / total_AD) %>%
+  left_join(
+    Metadata_Popgen_Ethiopia_withfws %>%
+      select(Sample, site) %>%
+      dplyr::rename(sample = Sample)
+  )
+
+# since taking a subset of samples, filter to positions where there are more than one variant
+fix_with_AD_gat_filt_samples_ethiopia_known_with_variation = fix_with_AD_gat_filt_samples_ethiopia_known %>%
+  group_by(CHROM, POS) %>%
+  filter(n_distinct(base) > 1)
+
+# get within sample frequency weighted allele freqs, by taking a within sample frequency can mitigate somewhat the fact we don't know COI
+fix_with_AD_gat_filt_samples_ethiopia_known_with_variation_allele_freqs = fix_with_AD_gat_filt_samples_ethiopia_known_with_variation %>%
+  group_by(CHROM, POS, site) %>%
+  mutate(total_wsaf = sum(wsaf)) %>%
+  group_by(CHROM, POS, base, total_wsaf, site) %>%
+  summarise(wsaf_sum = sum(wsaf)) %>%
+  mutate(allele_freq = wsaf_sum / total_wsaf) %>%
+  dplyr::rename(
+    total_population_sample_count = total_wsaf,
+    population = site
+  ) %>%
+  unite(CHROM_POS, CHROM, POS, sep = "-", remove = F) %>%
+  arrange(CHROM, POS, base, population)
+
+
+```
+
+
+```{r,eval=F}
+quick_summary <- function(x, probs = c(0.25, 0.5, 0.75)) {
+  q <- quantile(x, probs = probs, na.rm = TRUE)
+  tibble(
+    n = length(x[!is.na(x)]),
+    sd = sd(x, na.rm = TRUE),
+    mean = mean(x, na.rm = TRUE),
+    min = min(x, na.rm = TRUE),
+    max = max(x, na.rm = TRUE),
+    !!!setNames(as.list(q), paste0("q", probs * 100))
+  )
+}
+
+# heterozygosity function
+He <- function(p) {
+  1 - sum(p^2)
+}
+
+
+#' Calculates Jost's D and GST between two allele frequency vectors, vectors must be named and missing alleles from either population will be assumed to be zero
+#'
+#' @param freqA named allele frequency vector of population A
+#' @param freqB named allele frequency vector of population B
+#'
+#' @returns a tibble with Hs, Ht, Gst, JostD
+#' @export
+#'
+pairwise_stats <- function(freqA, freqB) {
+  # freqA / freqB are named numeric vectors: names = alleles
+  alleles <- union(names(freqA), names(freqB))
+  pA <- freqA[alleles]
+  pA[is.na(pA)] <- 0
+  pB <- freqB[alleles]
+  pB[is.na(pB)] <- 0
+
+  HeA <- He(pA)
+  HeB <- He(pB)
+  Hs <- mean(c(HeA, HeB))
+
+  pbar <- (pA + pB) / 2
+  Ht <- He(pbar)
+
+  Gst <- ifelse(Ht == 0, NA_real_, (Ht - Hs) / Ht)
+  JostD <- ifelse((1 - Hs) == 0, NA_real_, 2 * (Ht - Hs) / (1 - Hs))
+
+  tibble(Hs = Hs, Ht = Ht, Gst = Gst, JostD = JostD)
+}
+
+# collapse freq calls into named vectors so the above helper functions can work
+pairwise_pop_diff = fix_with_AD_gat_filt_samples_ethiopia_known_with_variation_allele_freqs %>%
+  ungroup() %>%
+  select(CHROM_POS, population, base, allele_freq) %>%
+  group_by(CHROM_POS, population) %>%
+  summarize(freqs = list(setNames(allele_freq, base)), .groups = "drop") %>%
+  group_by(CHROM_POS) %>%
+  filter(n_distinct(population) >= 2) %>% # i add this filtering to remove out loci which have found only in one pop
+  summarize(
+    freqs_by_pop = list(setNames(freqs, population)),
+    pop_pairs = list(combn(population, 2, simplify = FALSE)),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    stats = map2(pop_pairs, freqs_by_pop, \(pp, fbyp) {
+      map_dfr(pp, \(pair) {
+        pairwise_stats(fbyp[[pair[1]]], fbyp[[pair[2]]]) %>%
+          mutate(pop1 = pair[1], pop2 = pair[2])
+      })
+    })
+  ) %>%
+  select(CHROM_POS, stats) %>%
+  unnest(stats) %>% # add in population size counts so can filter off low coverage in populations to exclude high pop diff measures based on just low sample counts
+  left_join(
+    fix_with_AD_gat_filt_samples_ethiopia_known_with_variation_allele_freqs %>%
+      ungroup() %>%
+      select(CHROM_POS, population, total_population_sample_count) %>%
+      unique() %>%
+      dplyr::rename(
+        pop1 = population,
+        pop1_sample_count = total_population_sample_count
+      )
+  ) %>%
+  left_join(
+    fix_with_AD_gat_filt_samples_ethiopia_known_with_variation_allele_freqs %>%
+      ungroup() %>%
+      select(CHROM_POS, population, total_population_sample_count) %>%
+      unique() %>%
+      dplyr::rename(
+        pop2 = population,
+        pop2_sample_count = total_population_sample_count
+      )
+  )
+
+# filter to populations with at least 10 samples each
+pairwise_pop_diff_filt = pairwise_pop_diff %>%
+  filter(pop1_sample_count > 10, pop2_sample_count > 10) %>%
+  separate(
+    CHROM_POS,
+    remove = F,
+    sep = "-",
+    into = c("CHROM", "POS"),
+    convert = T
+  )
+
+write_tsv(
+  pairwise_pop_diff_filt,
+  "/mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/jostD_stat/multialleic/ethopia_by_site_JostD_multiallelic.tsv"
+)
+
+# getting a summary of JostD for all pairwise comparisons between samples
+pairwise_pop_diff_filt_mean_JostD = pairwise_pop_diff_filt %>%
+  rowwise() %>%
+  mutate(pair_id = paste0(sort(c(pop1, pop2)), collapse = " vs ")) %>%
+  group_by(pair_id) %>%
+  summarise(quick_summary(JostD)) %>%
+  arrange(desc(mean))
+write_tsv(
+  pairwise_pop_diff_filt_mean_JostD,
+  "/mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/jostD_stat/multialleic/ethopia_by_site_JostD_multiallelic_summary.tsv"
+)
+#create_dt(pairwise_pop_diff_filt_mean_JostD)
+```
+
+
+### for ploting the 
+```{r,eval=F}
+annotating_file <- read.csv(
+  "/mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen.filt.csq.bi.GT.miss0.2.vqslod.filt.snps.ann.wide.tsv",
+  sep = "\t"
+)
+
+print(colnames(pairwise_pop_diff_filt))
+print(colnames(annotating_file))
+merging_jostD_ann <- pairwise_pop_diff_filt %>%
+  left_join(annotating_file, by = c("POS" = "pos"))
+write_tsv(
+  merging_jostD_ann,
+  "/mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/jostD_stat/multialleic/ethopia_by_site_JostD_multiallelic_annotate.tsv"
+)
+```
+
+```{r,eval=F}
+library(ggplot2)
+library(dplyr)
+#library(sf)
+#library(ggforce)
+#library(ggpattern)
+#library(rnaturalearth)
+# library(geodata)
+library(readr)
+library(RColorBrewer)
+library(ggrepel)
+# library(fuzzyjoin)
+library(IRanges)
+library(ggplot2)
+library(ggrepel)
+library(ggnewscale)
+library(stringr)
+
+
+# jostd_ann_site <-merging_jostD_ann
+jostd_ann_site <- read.csv(
+  "/mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/jostD_stat/multialleic/ethopia_by_site_JostD_multiallelic_annotate.tsv.gz",
+  sep = "\t"
+)
+
+
+print(setdiff(jost))
+print(colnames(jostd_ann_site))
+
+# i am trying to find out if there is any interesting result after doing the jostD
+# for the hrp groups but not found an interesting result.
+jostd_ann_site_filter <- jostd_ann_site %>%
+  select(CHROM, pop1, pop2, JostD, Gene_name, POS) %>%
+  filter(JostD > 0.5)
+# gene_filtering <- jostd_ann_site_filter%>%
+#   select(Gene_name)
+# print(unique(jostd_ann_site$pop1))
+
+jost_plot <- jostd_ann_site_filter %>%
+  filter(CHROM != "Pf3D7_API_v3") %>%
+  mutate(
+    pop1 = ifelse(pop1 == "Arba Minch", "Arba Minch", pop1),
+    pop2 = ifelse(pop2 == "Arba Minch", "Arba Minch", pop2),
+    pop1 = ifelse(pop1 == "Gambella", "Gambella", pop1),
+    pop2 = ifelse(pop2 == "Gambella", "Gambella", pop2),
+    pop1 = ifelse(pop1 == "Gondar", "Gondar", pop1),
+    pop2 = ifelse(pop2 == "Gondar", "Gondar", pop2),
+    pop1 = ifelse(pop1 == "Metehera Fentale", "Metehera Fentale", pop1),
+    pop2 = ifelse(pop2 == "Metehera Fentale", "Metehera Fentale", pop2),
+    pop1 = ifelse(pop1 == "Mizan", "Mizan", pop1),
+    pop2 = ifelse(pop2 == "Mizan", "Mizan", pop2),
+  ) %>%
+  #filter(pop1 %in% districts$site & pop2 %in% districts$site) %>%
+  mutate(
+    chr_num = as.numeric(gsub("Pf3D7_", "", gsub("_v3", "", CHROM))),
+    Comparison = paste(pop1, "vs", pop2)
+  ) %>%
+  arrange(chr_num, POS) %>%
+  group_by(chr_num) %>%
+  mutate(pos_index = row_number()) %>%
+  ungroup()
+
+
+#Calculate cumulative position for each chromosome
+chr_lengths <- jost_plot %>%
+  group_by(chr_num) %>%
+  summarise(max_pos = max(pos_index), .groups = 'drop') %>%
+  mutate(
+    cum_pos = cumsum(as.numeric(max_pos)) - max_pos,
+    chr_center = cum_pos + max_pos / 2
+  )
+
+# Add cumulative position to data
+jost_plot <- jost_plot %>%
+  left_join(chr_lengths %>% dplyr::select(chr_num, cum_pos), by = "chr_num") %>%
+  mutate(x_pos = pos_index + cum_pos)
+
+# First, identify genes that appear more than 4 times with Fst > 0.7
+# I tried to lower fst from 0.7 to 0.5 and 5 gene name count to 3
+high_jost_genes <- jost_plot %>%
+  group_by(CHROM) %>%
+  filter(JostD > 0.7) %>%
+  count(Gene_name) %>%
+  filter(n > 5) %>%
+  pull(Gene_name)
+
+high_jost_gene_ann <- jost_plot %>%
+  group_by(CHROM) %>%
+  filter(JostD > 0.7) %>%
+  count(Gene_name) %>%
+  filter(n > 5)
+
+
+# Add a column to identify which points should be colored
+# change the colored points to 0.5
+jost_plot <- jost_plot %>%
+  mutate(
+    highlight = ifelse(
+      JostD > 0.7 & Gene_name %in% high_jost_genes,
+      Comparison,
+      "Other"
+    )
+  )
+
+# Filter for plotting (Fst > 0.5)
+jost_plot_filtered <- jost_plot %>% filter(JostD > 0.5)
+
+# Then filter the data for labeling
+# labels_data <- jost_plot %>%
+#   filter(JostD > 0.7, Gene_name %in% high_jost_genes)
+
+# these are the genenames that have missing gene id so i created this dataframe and joined it later
+gene_regions_notpf <- data.frame(
+  gene_name = c("CRT", "UT", "TEX1", "REX3","PRP22" ,"PLP4","GEXP14"),
+  chr = c("Pf3D7_07_v3", "Pf3D7_07_v3", "Pf3D7_06_v3","Pf3D7_09_v3","Pf3D7_10_v3","Pf3D7_08_v3","Pf3D7_11_v3" ),
+  start = c(402385, 214949, 132888 , 1435767,1223717 ,878495,123216   ),
+  end = c(406341, 230713, 138199,1439273 ,1229643,880459 ,124749   ),
+  stringsAsFactors = FALSE
+)
+
+gff_file <- read.table("/mnt/storage13/ahri/plasmodium_falciparum/Pfalciparum.genome.modified.new.gff3", header = FALSE, sep = "\t", stringsAsFactors = FALSE)
+colnames(gff_file) <- c("chr","source","feature","start","end",
+                   "score","strand","phase","V9")
+gff_clean <- gff_file %>%
+  mutate(
+    gene_id = str_extract(V9, "PF3D7_[0-9]+")
+  )%>%
+    filter(feature == "gene")
+
+labels_data <- jost_plot %>%
+  filter(JostD > 0.7, Gene_name %in% high_jost_genes) %>%
+  group_by(Gene_name) %>%
+  summarise(
+    x = mean(x_pos),
+    y = max(JostD),
+    .groups = "drop"
+  )%>%
+    mutate(gene_name = str_replace(Gene_name, "gene:", "")) %>%
+    left_join(gff_clean %>% select(gene_id, start, end,chr,V9), by = c("gene_name" = "gene_id"))%>%
+    select(chr,start,end,gene_name)%>%
+    filter(!is.na(start) & !is.na(end))
+
+gene_regions <- labels_data%>%
+    bind_rows(gene_regions_notpf)
+# Extract chromosome number
+gene_regions$chr_num <- as.numeric(gsub(
+  "Pf3D7_",
+  "",
+  gsub("_v3", "", gene_regions$chr)
+))
+
+# Initialize x position columns
+gene_regions$x_start <- NA_real_
+gene_regions$x_end <- NA_real_
+
+jost_plot$POS <- as.numeric(jost_plot$POS)
+
+gene_regions$start <- as.numeric(gene_regions$start)
+gene_regions$end <- as.numeric(gene_regions$end)
+gene_regions$chr_num <- as.numeric(gene_regions$chr_num)
+# Loop through each gene
+for (i in 1:nrow(gene_regions)) {
+  current_chr <- gene_regions$chr_num[i]
+  current_start <- gene_regions$start[i]
+  current_end <- gene_regions$end[i]
+
+  cat(sprintf(
+    "\nProcessing %s (chr %d, %d-%d)...\n",
+    gene_regions$gene_name[i],
+    current_chr,
+    current_start,
+    current_end
+  ))
+
+  # Filter SNPs for this chromosome
+  chr_snps <- jost_plot %>% filter(chr_num == current_chr)
+
+  cat(sprintf(
+    "  Found %d SNPs on chromosome %d\n",
+    nrow(chr_snps),
+    current_chr
+  ))
+
+  if (nrow(chr_snps) > 0) {
+    # Find closest start position
+    start_snp <- chr_snps %>%
+      mutate(dist = abs(POS - current_start)) %>%
+      slice_min(dist, n = 1)
+
+    gene_regions$x_start[i] <- start_snp$x_pos[1]
+
+    # Find closest end position
+    end_snp <- chr_snps %>%
+      mutate(dist = abs(POS - current_end)) %>%
+      slice_min(dist, n = 1)
+
+    gene_regions$x_end[i] <- end_snp$x_pos[1]
+
+    cat(sprintf(
+      "  x_pos: %.2f to %.2f\n",
+      gene_regions$x_start[i],
+      gene_regions$x_end[i]
+    ))
+  } else {
+    cat("  WARNING: No SNPs found on this chromosome!\n")
+  }
+}
+
+gene_regions_with_pos <- gene_regions
+
+gene_regions_with_pos <- gene_regions
+
+#library(ggforce)  # For drawing half circles
+
+# Define site colors - these match your data exactly
+print(unique(jostd_ann_site$pop1))
+print(unique(jostd_ann_site$pop2))
+site_colors <- c(
+  "Arba Minch" = "#f8766d", # red         # orange
+  "Gambella" = "#00bf7d", # cyan
+  "Gondar" = "#00b0f6", # blue
+  "Metehera Fentale" = "#eaf36b",
+  "Mizan" = "#e76bf3" # magenta
+)
+
+# Create left and right datasets
+fst_left <- jost_plot_filtered %>%
+  filter(highlight != "Other") %>%
+  mutate(
+    x_adj = x_pos - 0.15,
+    site_color = pop1
+  )
+
+fst_right <- jost_plot_filtered %>%
+  filter(highlight != "Other") %>%
+  mutate(
+    x_adj = x_pos + 0.15,
+    site_color = pop2
+  )
+
+# Filter for semicircles
+fst_semicircles <- jost_plot_filtered %>%
+  filter(highlight != "Other")
+# candidate_genes <- c("CRT", "FP2B", "UBP1","ABCF1","gene:PF3D7_0720700","AP2-O","AP2-G","HP1","GDV1","AP2-L")
+
+
+
+
+p <- ggplot(jost_plot_filtered, aes(x = x_pos, y = JostD)) +
+
+  # --- Gene regions (transparent, colored by gene_name) ---
+  geom_rect(
+    data = gene_regions_with_pos,
+    aes(
+      xmin = x_start,
+      xmax = x_end,
+      ymin = 0.5,
+      ymax = 1,
+      fill = gene_name
+    ),
+    inherit.aes = FALSE,
+    color = NA,
+    alpha = 0.25
+  ) +
+  scale_color_viridis_d(
+    option = "viridis",
+    alpha = 0.25 # Add alpha here in the scale
+  ) +
+  scale_fill_viridis_d(
+    guide = "none",
+    option = "viridis",
+    alpha = 0.25 # Add alpha here in the scale
+  ) +
+
+  # --- Reset fill/color scales for Fst points ---
+  ggnewscale::new_scale_fill() +
+  ggnewscale::new_scale_color() +
+
+  # --- Background points ---
+  geom_point(
+    data = jost_plot_filtered %>% filter(highlight == "Other"),
+    color = "grey70",
+    alpha = 0.3,
+    size = 2
+  ) +
+
+  # --- Outer ring (pop2) ---
+  geom_point(
+    data = fst_semicircles,
+    aes(x = x_pos, y = JostD, color = pop1),
+    shape = 21,
+    fill = NA,
+    size = 4,
+    stroke = 1.3
+  ) +
+
+  # --- Inner fill (pop2) ---
+  geom_point(
+    data = fst_semicircles,
+    aes(x = x_pos, y = JostD, fill = pop2),
+    shape = 21,
+    color = "transparent",
+    size = 3.2,
+    stroke = 0
+  ) +
+  scale_fill_manual(values = site_colors, name = "Filling: Population 1") +
+  scale_color_manual(values = site_colors, name = "Ring: Population 2") +
+
+  # --- Axes & layout ---
+  scale_x_continuous(
+    breaks = chr_lengths$chr_center,
+    labels = chr_lengths$chr_num,
+    expand = c(0.01, 0)
+  ) +
+  scale_y_continuous(limits = c(0.5, 1.15)) +
+  coord_cartesian(
+    xlim = c(min(jost_plot_filtered$x_pos), max(jost_plot_filtered$x_pos)),
+    ylim = c(0.5, 1.15),
+    clip = "off"
+  ) +
+  labs(x = "Chromosome", y = "JostD Value") +
+  theme_minimal() +
+  theme(
+    axis.title = element_text(size = 13, face = "bold"),
+    axis.text.x = element_text(size = 15, face = "bold"),
+    axis.text.y = element_text(size = 15, face = "bold"),
+    legend.position = "bottom",
+    legend.title = element_text(size = 11, face = "bold"),
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor = element_blank()
+  ) +
+  geom_hline(
+    yintercept = 0.7,
+    linetype = "dashed",
+    color = "red",
+    alpha = 0.5
+  ) +
+  geom_vline(
+    xintercept = chr_lengths$cum_pos[-1],
+    linetype = "dotted",
+    color = "gray80",
+    alpha = 0.5
+  ) +
+  geom_text_repel(
+    data = gene_regions_with_pos,
+    aes(
+      x = (x_start + x_end) / 2,
+      y = 1.02,
+      label = gene_name
+    ),
+    size = 3,
+    fontface = "bold",
+    angle = 60,
+    direction = "both"
+  )
+
+print(p)
+
+ggsave(
+  "/mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/jostD_stat/multialleic/ethiopia_district/JostD_district_multiallelic_updated_crt.pdf",
+  plot = p,
+  width = 15,
+  height = 10
+)
+
+```
+
+so one of the comment to do is that to remove other targets and plotting only the CRT
+```{r}
+library(ggplot2)
+library(dplyr)
+#library(sf)
+#library(ggforce)
+#library(ggpattern)
+#library(rnaturalearth)
+# library(geodata)
+library(readr)
+library(RColorBrewer)
+library(ggrepel)
+# library(fuzzyjoin)
+library(IRanges)
+library(ggplot2)
+library(ggrepel)
+library(ggnewscale)
+library(stringr)
+
+
+# jostd_ann_site <-merging_jostD_ann
+jostd_ann_site <- read.csv(
+  "/mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/jostD_stat/multialleic/ethopia_by_site_JostD_multiallelic_annotate.tsv.gz",
+  sep = "\t"
+)
+
+
+# print(setdiff(jost))
+print(colnames(jostd_ann_site))
+
+# i am trying to find out if there is any interesting result after doing the jostD
+# for the hrp groups but not found an interesting result.
+jostd_ann_site_filter <- jostd_ann_site %>%
+  select(CHROM, pop1, pop2, JostD, Gene_name, POS) %>%
+  filter(JostD > 0.5)
+# gene_filtering <- jostd_ann_site_filter%>%
+#   select(Gene_name)
+# print(unique(jostd_ann_site$pop1))
+
+jost_plot <- jostd_ann_site_filter %>%
+  filter(CHROM != "Pf3D7_API_v3") %>%
+  mutate(
+    pop1 = ifelse(pop1 == "Arba Minch", "Arba Minch", pop1),
+    pop2 = ifelse(pop2 == "Arba Minch", "Arba Minch", pop2),
+    pop1 = ifelse(pop1 == "Gambella", "Gambella", pop1),
+    pop2 = ifelse(pop2 == "Gambella", "Gambella", pop2),
+    pop1 = ifelse(pop1 == "Gondar", "Gondar", pop1),
+    pop2 = ifelse(pop2 == "Gondar", "Gondar", pop2),
+    pop1 = ifelse(pop1 == "Metehera Fentale", "Metehera Fentale", pop1),
+    pop2 = ifelse(pop2 == "Metehera Fentale", "Metehera Fentale", pop2),
+    pop1 = ifelse(pop1 == "Mizan", "Mizan", pop1),
+    pop2 = ifelse(pop2 == "Mizan", "Mizan", pop2),
+  ) %>%
+  #filter(pop1 %in% districts$site & pop2 %in% districts$site) %>%
+  mutate(
+    chr_num = as.numeric(gsub("Pf3D7_", "", gsub("_v3", "", CHROM))),
+    Comparison = paste(pop1, "vs", pop2)
+  ) %>%
+  arrange(chr_num, POS) %>%
+  group_by(chr_num) %>%
+  mutate(pos_index = row_number()) %>%
+  ungroup()
+
+
+#Calculate cumulative position for each chromosome
+chr_lengths <- jost_plot %>%
+  group_by(chr_num) %>%
+  summarise(max_pos = max(pos_index), .groups = 'drop') %>%
+  mutate(
+    cum_pos = cumsum(as.numeric(max_pos)) - max_pos,
+    chr_center = cum_pos + max_pos / 2
+  )
+
+# Add cumulative position to data
+jost_plot <- jost_plot %>%
+  left_join(chr_lengths %>% dplyr::select(chr_num, cum_pos), by = "chr_num") %>%
+  mutate(x_pos = pos_index + cum_pos)
+
+# First, identify genes that appear more than 4 times with Fst > 0.7
+# I tried to lower fst from 0.7 to 0.5 and 5 gene name count to 3
+high_jost_genes <- jost_plot %>%
+  group_by(CHROM) %>% # filtering high jostD 
+  filter(JostD > 0.7) %>%
+  count(Gene_name) %>%
+  filter(n > 5) %>%
+  pull(Gene_name)
+
+high_jost_gene_ann <- jost_plot %>%
+  group_by(CHROM) %>%
+  filter(JostD > 0.7) %>%
+  count(Gene_name) %>%
+  filter(n > 5)
+
+
+# Add a column to identify which points should be colored
+# change the colored points to 0.5
+jost_plot <- jost_plot %>%
+  mutate(
+    highlight = ifelse(
+      JostD > 0.7 & Gene_name %in% high_jost_genes,
+      Comparison,
+      "Other"
+    )
+  )
+
+# Filter for plotting (Fst > 0.5)
+jost_plot_filtered <- jost_plot %>% filter(JostD > 0.5)
+
+# Then filter the data for labeling
+# labels_data <- jost_plot %>%
+#   filter(JostD > 0.7, Gene_name %in% high_jost_genes)
+
+gene_regions_notpf <- data.frame(
+  gene_name = c("CRT", "UT", "TEX1", "REX3","PRP22" ,"PLP4","GEXP14"),
+  chr = c("Pf3D7_07_v3", "Pf3D7_07_v3", "Pf3D7_06_v3","Pf3D7_09_v3","Pf3D7_10_v3","Pf3D7_08_v3","Pf3D7_11_v3" ),
+  start = c(402385, 214949, 132888 , 1435767,1223717 ,878495,123216   ),
+  end = c(406341, 230713, 138199,1439273 ,1229643,880459 ,124749   ),
+  stringsAsFactors = FALSE
+)
+
+gff_file <- read.table("/mnt/storage13/ahri/plasmodium_falciparum/Pfalciparum.genome.modified.new.gff3", header = FALSE, sep = "\t", stringsAsFactors = FALSE)
+colnames(gff_file) <- c("chr","source","feature","start","end",
+                   "score","strand","phase","V9")
+gff_clean <- gff_file %>%
+  mutate(
+    gene_id = str_extract(V9, "PF3D7_[0-9]+")
+  )%>%
+    filter(feature == "gene")
+
+labels_data <- jost_plot %>%
+  filter(JostD > 0.7, Gene_name %in% high_jost_genes) %>%
+  group_by(Gene_name) %>%
+  summarise(
+    x = mean(x_pos),
+    y = max(JostD),
+    .groups = "drop"
+  )%>%
+    mutate(gene_name = str_replace(Gene_name, "gene:", "")) %>%
+    left_join(gff_clean %>% select(gene_id, start, end,chr), by = c("gene_name" = "gene_id"))%>%
+    select(chr,start,end,gene_name)%>%
+    filter(!is.na(start) & !is.na(end))
+
+gene_regions <- labels_data%>%
+    bind_rows(gene_regions_notpf)
+# Extract chromosome number
+gene_regions$chr_num <- as.numeric(gsub(
+  "Pf3D7_",
+  "",
+  gsub("_v3", "", gene_regions$chr)
+))
+
+# Initialize x position columns
+gene_regions$x_start <- NA_real_
+gene_regions$x_end <- NA_real_
+
+jost_plot$POS <- as.numeric(jost_plot$POS)
+
+gene_regions$start <- as.numeric(gene_regions$start)
+gene_regions$end <- as.numeric(gene_regions$end)
+gene_regions$chr_num <- as.numeric(gene_regions$chr_num)
+# Loop through each gene
+for (i in 1:nrow(gene_regions)) {
+  current_chr <- gene_regions$chr_num[i]
+  current_start <- gene_regions$start[i]
+  current_end <- gene_regions$end[i]
+
+  cat(sprintf(
+    "\nProcessing %s (chr %d, %d-%d)...\n",
+    gene_regions$gene_name[i],
+    current_chr,
+    current_start,
+    current_end
+  ))
+
+  # Filter SNPs for this chromosome
+  chr_snps <- jost_plot %>% filter(chr_num == current_chr)
+
+  cat(sprintf(
+    "  Found %d SNPs on chromosome %d\n",
+    nrow(chr_snps),
+    current_chr
+  ))
+
+  if (nrow(chr_snps) > 0) {
+    # Find closest start position
+    start_snp <- chr_snps %>%
+      mutate(dist = abs(POS - current_start)) %>%
+      slice_min(dist, n = 1)
+
+    gene_regions$x_start[i] <- start_snp$x_pos[1]
+
+    # Find closest end position
+    end_snp <- chr_snps %>%
+      mutate(dist = abs(POS - current_end)) %>%
+      slice_min(dist, n = 1)
+
+    gene_regions$x_end[i] <- end_snp$x_pos[1]
+
+    cat(sprintf(
+      "  x_pos: %.2f to %.2f\n",
+      gene_regions$x_start[i],
+      gene_regions$x_end[i]
+    ))
+  } else {
+    cat("  WARNING: No SNPs found on this chromosome!\n")
+  }
+}
+
+gene_regions_with_pos <- gene_regions
+
+gene_regions_with_pos <- gene_regions%>% # filtering out crt target only since most of the popup targets are not interested
+  filter(gene_name == "CRT")
+
+#library(ggforce)  # For drawing half circles
+
+# Define site colors - these match your data exactly
+print(unique(jostd_ann_site$pop1))
+print(unique(jostd_ann_site$pop2))
+site_colors <- c(
+  "Arba Minch" = "#f8766d", # red         # orange
+  "Gambella" = "#00bf7d", # cyan
+  "Gondar" = "#00b0f6", # blue
+  "Metehera Fentale" = "#eaf36b",
+  "Mizan" = "#e76bf3" # magenta
+)
+
+# Create left and right datasets
+fst_left <- jost_plot_filtered %>%
+  filter(highlight != "Other") %>%
+  mutate(
+    x_adj = x_pos - 0.15,
+    site_color = pop1
+  )
+
+fst_right <- jost_plot_filtered %>%
+  filter(highlight != "Other") %>%
+  mutate(
+    x_adj = x_pos + 0.15,
+    site_color = pop2
+  )
+
+# Filter for semicircles
+fst_semicircles <- jost_plot_filtered %>%
+  filter(highlight != "Other")
+# candidate_genes <- c("CRT", "FP2B", "UBP1","ABCF1","gene:PF3D7_0720700","AP2-O","AP2-G","HP1","GDV1","AP2-L")
+
+
+
+
+p <- ggplot(jost_plot_filtered, aes(x = x_pos, y = JostD)) +
+
+  # --- Gene regions (transparent, colored by gene_name) ---
+  geom_rect(
+    data = gene_regions_with_pos,
+    aes(
+      xmin = x_start,
+      xmax = x_end,
+      ymin = 0.5,
+      ymax = 1,
+      fill = gene_name
+    ),
+    inherit.aes = FALSE,
+    color = NA,
+    alpha = 0.25
+  ) +
+  scale_color_viridis_d(
+    option = "viridis",
+    alpha = 0.25 # Add alpha here in the scale
+  ) +
+  scale_fill_viridis_d(
+    guide = "none",
+    option = "viridis",
+    alpha = 0.25 # Add alpha here in the scale
+  ) +
+
+  # --- Reset fill/color scales for Fst points ---
+  ggnewscale::new_scale_fill() +
+  ggnewscale::new_scale_color() +
+
+  # --- Background points ---
+  geom_point(
+    data = jost_plot_filtered %>% filter(highlight == "Other"),
+    color = "grey70",
+    alpha = 0.3,
+    size = 2
+  ) +
+
+  # --- Outer ring (pop2) ---
+  geom_point(
+    data = fst_semicircles %>% filter(Gene_name == "CRT"),
+    aes(x = x_pos, y = JostD, color = pop1),
+    shape = 21,
+    fill = NA,
+    size = 4,
+    stroke = 1.3
+  ) +
+
+  # --- Inner fill (pop2) ---
+  geom_point(
+    data = fst_semicircles%>% filter(Gene_name == "CRT"),
+    aes(x = x_pos, y = JostD, fill = pop2),
+    shape = 21,
+    color = "transparent",
+    size = 3.2,
+    stroke = 0
+  ) +
+  scale_fill_manual(values = site_colors, name = "Filling: Population 1") +
+  scale_color_manual(values = site_colors, name = "Ring: Population 2") +
+
+  # --- Axes & layout ---
+  scale_x_continuous(
+    breaks = chr_lengths$chr_center,
+    labels = chr_lengths$chr_num,
+    expand = c(0.01, 0)
+  ) +
+  scale_y_continuous(limits = c(0.5, 1.15)) +
+  coord_cartesian(
+    xlim = c(min(jost_plot_filtered$x_pos), max(jost_plot_filtered$x_pos)),
+    ylim = c(0.5, 1.15),
+    clip = "off"
+  ) +
+  labs(x = "Chromosome", y = "JostD Value") +
+  theme_minimal() +
+  theme(
+    axis.title = element_text(size = 13, face = "bold"),
+    axis.text.x = element_text(size = 15, face = "bold"),
+    axis.text.y = element_text(size = 15, face = "bold"),
+    legend.position = "bottom",
+    legend.title = element_text(size = 11, face = "bold"),
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor = element_blank()
+  ) +
+  geom_hline(
+    yintercept = 0.7,
+    linetype = "dashed",
+    color = "red",
+    alpha = 0.5
+  ) +
+  geom_vline(
+    xintercept = chr_lengths$cum_pos[-1],
+    linetype = "dotted",
+    color = "gray80",
+    alpha = 0.5
+  ) +
+  geom_text_repel(
+    data = gene_regions_with_pos,
+    aes(
+      x = (x_start + x_end) / 2,
+      y = 1.02,
+      label = gene_name
+    ),
+    size = 3,
+    fontface = "bold",
+    angle = 60,
+    direction = "both"
+  )
+
+print(p)
+
+ggsave(
+  "/mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/jostD_stat/multialleic/ethiopia_district/JostD_district_multiallelic_updated_crt_only.pdf",
+  plot = p,
+  width = 15,
+  height = 10
+)
+```

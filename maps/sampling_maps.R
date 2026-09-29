@@ -136,14 +136,15 @@ ggsave("figs/map_sites_samplesize_all_ethiopia.pdf", width = 6.5, height = 5.5, 
 
 
 # Plot map with studies
+study_counts$Study[study_counts$Study == "Leucodepletion"] <- "Molecular Surveillance Study"
 ggplot() +
   geom_sf(data = world, fill = "grey90", color = NA) +
-  geom_sf(data = ethiopia_admin1_sf, fill = "white", color = "black", size = 0.8) +
+  geom_sf(data = ethiopia_admin1_sf, fill = "white", color = "black", size = 0.2) +
   geom_arc_bar(
     data = study_counts,
     aes(
       x0 = lon, y0 = lat,
-      r0 = 0, r = 0.4,       # Adjust radius size here
+      r0 = 0, r = 0.5,       # Adjust radius size here
       start = start, end = end,
       fill =Study
     ),
@@ -153,7 +154,7 @@ ggplot() +
     name = "Study",  # Optional: sets legend title
     values = c(
       "TES" = "darkgreen",  
-      "Leucodepletion" = "lightblue"  
+      "Molecular Surveillance Study" = "lightblue"  
     )
   )+
   coord_sf(xlim = c(32, 48), ylim = c(3, 15)) +
