@@ -21,9 +21,18 @@ Scripts are listed in the order they are run in the analysis.
 | F<sub>WS</sub> | Within-host diversity (F<sub>WS</sub>) estimation | [`run_fws.sh`](https://github.com/leenvh/WGS_Pf_Ethiopia_2024/blob/main/fws/run_fws.sh) |
 | Ancestry | Population structure / ancestry estimation with tess3r | [`tess3r.sh`](https://github.com/leenvh/WGS_Pf_Ethiopia_2024/blob/main/tess3r/tess3r.sh) |
 | Jost's D | Pairwise population differentiation | [`process_multi_vcf_pop_jostD.qmd`](https://github.com/leenvh/WGS_Pf_Ethiopia_2024/blob/main/josts%20D/process_multi_vcf_pop_jostD.qmd) |
-| Selection | Selection metrics | _TBA_ |
 
-### 3. Statistical analysis
+### 3. Selection metrics
+
+| Analysis | Description | Script |
+|----------|-------------|--------|
+| EHH | Extended haplotype homozygosity, one script per population comparison | [`ehh/`](https://github.com/leenvh/WGS_Pf_Ethiopia_2024/tree/main/ehh) |
+| EHH decay | EHH decay plots for SNPs of interest | [`ehh/ehh_plots/`](https://github.com/leenvh/WGS_Pf_Ethiopia_2024/tree/main/ehh/ehh_plots) |
+| IBD | Identity by descent between sample pairs with hmmIBD | [`run_hmmibd_all.sh`](https://github.com/leenvh/WGS_Pf_Ethiopia_2024/blob/main/hmmibd/run_hmmibd_all.sh) |
+| Tajima's D | Tajima's D across the genome | [`tajima.sh`](https://github.com/leenvh/WGS_Pf_Ethiopia_2024/blob/main/tajimasD/tajima.sh) |
+
+
+### 4. Statistical analysis
 
 | Step | Description | Script |
 |------|-------------|--------|
@@ -31,7 +40,7 @@ Scripts are listed in the order they are run in the analysis.
 | 2 | Regression / interaction analysis across populations (R622I) | [`multiple_pop_R622I_interaction_analysis.R`](https://github.com/leenvh/WGS_Pf_Ethiopia_2024/blob/main/regression/multiple_pop_R622I_interaction_analysis.R) |
 | 3 | Visualise K13 interaction results | [`K13_interaction_vis.R`](https://github.com/leenvh/WGS_Pf_Ethiopia_2024/blob/main/regression/K13_interaction_vis.R) |
 
-### 4. Map visualisations
+### 5. Map visualisations
 
 | Description | Script |
 |-------------|--------|
