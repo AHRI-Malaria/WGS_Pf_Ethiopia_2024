@@ -28,8 +28,9 @@ Scripts are listed in the order they are run in the analysis.
 |----------|-------------|--------|
 | EHH | Extended haplotype homozygosity, one script per population comparison | [`ehh/`](https://github.com/leenvh/WGS_Pf_Ethiopia_2024/tree/main/ehh) |
 | EHH decay | EHH decay plots for SNPs of interest | [`ehh/ehh_plots/`](https://github.com/leenvh/WGS_Pf_Ethiopia_2024/tree/main/ehh/ehh_plots) |
-| IBD | Identity by descent between sample pairs with hmmIBD | [`run_hmmibd_all.sh`](https://github.com/leenvh/WGS_Pf_Ethiopia_2024/blob/main/hmmibd/run_hmmibd_all.sh) |
-| Tajima's D | Tajima's D across the genome | [`tajima.sh`](https://github.com/leenvh/WGS_Pf_Ethiopia_2024/blob/main/tajimasD/tajima.sh) |
+| IBD | Identity by descent between sample pairs with hmmIBD for specified comparison groups| [`run_hmmibd_all.sh`](https://github.com/leenvh/WGS_Pf_Ethiopia_2024/blob/main/hmmibd/run_hmmibd_all.sh) |
+| Tajima's D | Tajima's D across the genome for specified comparison groups | [`tajima.sh`](https://github.com/leenvh/WGS_Pf_Ethiopia_2024/blob/main/tajimasD/tajima.sh) |
+| Composite selection signals | Multi-tiered analytical framework combining all four selection metrics for specified comparison groups | [`comp_selection/`](https://github.com/leenvh/WGS_Pf_Ethiopia_2024/tree/main/comp_selection) |
 
 
 ### 4. Statistical analysis
