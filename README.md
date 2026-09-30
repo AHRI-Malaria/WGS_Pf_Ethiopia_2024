@@ -50,4 +50,13 @@ Scripts are listed in the order they are run in the analysis.
 
 
 ## Requirements
+### Bash environment
+Bash scripts scripts rely on functioning installations of bwa, python, samtools, gatk, and bcftools.<br />
+The analysis was done with the following versions: bwa version 0.7.18-r1243, python version 3.12.11, samtools version 1.22, gatk v4.1.4.1, bcftools version 1.22 <br />
 
+
+### R environment
+R scripts were executed in R version 4.4.2 using the following packages: ape (5.8.1), pegas (1.3), msa (1.38.0), dplyr (1.1.4), psych (2.4.5), officer (0.6.7), flextable (0.9.7), tidyr (1.3.1), readxl (1.4.5), purrr (1.0.4), writexl (1.5.1), reshape2 (1.4.4), tidyverse (2.0.0), ggplot2 (3.5.2), scales (1.4.0), sf (1.0.20), grid (4.4.2), stringr (1.5.1), ggforce (0.4.2), grid (4.4.2), tmap (4.0), cowplot (1.1.3), scatterpie (0.2.5), gridExtra (2.3), ggrepel (0.9.6), data.table (1.18.2.1), rehh (3.2.3) , vcfR (1.15.0), qqman (0.1.9), R.utils (1.8.2)
+
+### Python environment
+Python scripts were run in python version 3.12.7 and using the following packages: numpy (1.26.4), scikit-allel (1.3.13), pysam (0.23.3), plotly (5.24.1), scipy (1.14.1), matplotlib (3.9.3), pandas (2.2.3), tqdm (4.66.5)
