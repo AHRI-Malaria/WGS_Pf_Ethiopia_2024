@@ -20,7 +20,10 @@ analyses <- list(
   tajimasD_old_vs_new    = "tajimasD_annotated_old_vs_new",
   tajimasD_north_vs_rest = "tajimasD_annotated_north_vs_rest",
   tajimasD_r622i         = "tajimasD_annotated_r622i",
-  tajimasD_hrp_status    = "tajimasD_annotated_hrp_status"
+  tajimasD_hrp_status    = "tajimasD_annotated_hrp_status",
+  tajimasD_by_site       = "tajimasD_annotated_by_site",
+  tajimasD_sites_grouping = "tajimasD_annotated_sites_grouping",
+  tajimasD_pfcrt          = "tajimasD_annotated_pfcrt"
 )
 
 # ==============================================================================
