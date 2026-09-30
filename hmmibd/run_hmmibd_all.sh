@@ -6,6 +6,11 @@
 #   4. North vs Rest (Ethiopia only)
 #   5. Kelch13 R622I: WT (0/0) vs mutant (1/1) — heterozygous (0/1) excluded
 #   6. HRP status: wild vs hrp3_only vs mutant (hrp2-/hrp3-)  — hrp2- only excluded
+#   7. By Site (Ethiopia 2024 collection sites: Gondar, Gambella, Metehera
+#      Fentale, Mizan, Arba Minch)
+#   8. Sites grouping (Co_endemic_sites = Gondar + Mizan + Metehera Fentale,
+#      vs Gambella vs Arba Minch)
+#   9. pfcrt K76 vs 76T within the co-endemic sites
 #
 # Usage:
 #   cd <data_dir> && /path/to/repo/hmmibd/run_hmmibd_all.sh
@@ -24,6 +29,9 @@ REF_INDEX="/mnt/storage13/leen/plasmodium_falciparum/Pfalciparum.genome.fasta.fa
 NORTH_DISTRICTS="Atseged Tsimbila|West Armachiho|K/Humera|Gondar|Shewa Robit Town"
 R622I_CSV="/mnt/storage13/leen/popgen_ethiopia_WGS/WGS_Pf_Ethiopia_2024/input_files/R622I_longformat.csv"
 HRP_META="/mnt/storage13/leen/popgen_ethiopia_WGS/WGS_Pf_Ethiopia_2024/input_files/sample_meta_with_hrp_status_updated.csv"
+K76T_CSV="/mnt/storage13/leen/popgen_ethiopia_WGS/WGS_Pf_Ethiopia_2024/input_files/K76T_longformat.csv"
+# Co-endemic 2024 collection sites (same definition as the EHH and Tajima's D pipelines)
+CO_ENDEMIC="Gondar|Mizan|Metehera Fentale"
 PF_SIZES="/mnt/storage13/leen/popgen_ethiopia_WGS/072025_pf_mgen_ethiopia_popgen/hmmIBD/Ethiopia/pf.sizes"
 
 # Get column indices from metadata header
@@ -239,7 +247,100 @@ echo "HRP status complete."
 echo ""
 
 # ------------------------------------------------------------------
-# 7. Combine win10kb_annotated.tsv files from all comparisons
+# 7. By Site (Ethiopian 2024 collection sites)
+#    Gondar, Gambella, Metehera Fentale, Mizan, Arba Minch.
+#    Site labels are underscore-normalised (e.g. "Arba Minch" -> "Arba_Minch")
+#    so they survive shell word-splitting and filename construction.
+# ------------------------------------------------------------------
+echo "=== By Site (Ethiopia 2024) ==="
+# Create derived metadata with a 'site' column, restricted to the 2024 Ethiopian samples
+awk -F'\t' -v col_c="$country_col" -v col_y="$year_col" -v col_d="$district_col" \
+    'BEGIN{OFS="\t"}
+     NR==1{print $0, "site"}
+     NR>1 && $col_c=="Ethiopia" && $col_y=="2024" && $col_d != "" {
+        s=$col_d; gsub(/ +/, "_", s); print $0, s
+     }' "$METADATA" > "$DATA_DIR/metadata_site.csv"
+# Generate site list dynamically from the derived metadata (last column)
+awk -F'\t' 'NR>1 {print $NF}' "$DATA_DIR/metadata_site.csv" | sort -u \
+    > "$DATA_DIR/site_list.txt"
+echo "  Sites: $(tr '\n' ' ' < "$DATA_DIR/site_list.txt")"
+run_hmmibd "$DATA_DIR/site_list.txt" "site" \
+    "$DATA_DIR/metadata_site.csv" "$DATA_DIR/hmmibd_by_site"
+run_summary "$DATA_DIR/hmmibd_by_site" "$DATA_DIR/site_list.txt"
+paint_chromosomes "$DATA_DIR/hmmibd_by_site" "High IBD regions — by site (Ethiopia 2024)"
+echo "Sites complete."
+echo ""
+
+# ------------------------------------------------------------------
+# 8. Sites grouping (Ethiopia 2024)
+#    Co_endemic_sites = Gondar + Mizan + Metehera Fentale, compared with
+#    Gambella and Arba Minch. Gambella and Arba_Minch are recomputed here
+#    rather than reused from section 7 so the comparison is self-contained;
+#    downstream scripts tell the two apart on the 'comparison' column.
+# ------------------------------------------------------------------
+echo "=== Sites grouping (Ethiopia 2024) ==="
+# Create derived metadata with a 'site_group' column, restricted to the 2024
+# Ethiopian samples
+awk -F'\t' -v col_c="$country_col" -v col_y="$year_col" -v col_d="$district_col" \
+    -v co="$CO_ENDEMIC" \
+    'BEGIN{OFS="\t"}
+     NR==1{print $0, "site_group"}
+     NR>1 && $col_c=="Ethiopia" && $col_y=="2024" && $col_d != "" {
+        if ($col_d ~ co) { print $0, "Co_endemic_sites" }
+        else { s=$col_d; gsub(/ +/, "_", s); print $0, s }
+     }' "$METADATA" > "$DATA_DIR/metadata_site_group.csv"
+awk -F'\t' 'NR>1 {print $NF}' "$DATA_DIR/metadata_site_group.csv" | sort -u \
+    > "$DATA_DIR/sites_grouping_list.txt"
+echo "  Groups: $(tr '\n' ' ' < "$DATA_DIR/sites_grouping_list.txt")"
+run_hmmibd "$DATA_DIR/sites_grouping_list.txt" "site_group" \
+    "$DATA_DIR/metadata_site_group.csv" "$DATA_DIR/hmmibd_sites_grouping"
+run_summary "$DATA_DIR/hmmibd_sites_grouping" "$DATA_DIR/sites_grouping_list.txt"
+paint_chromosomes "$DATA_DIR/hmmibd_sites_grouping" "High IBD regions — sites grouping (Ethiopia 2024)"
+echo "Sites grouping complete."
+echo ""
+
+# ------------------------------------------------------------------
+# 9. pfcrt K76 vs 76T (co-endemic sites only)
+#    Groups are defined by K76T (Pf3D7_07_v3:403,625):
+#      K76 = 0/0 (wild-type), 76T = 1/1 (mutant)
+#    Heterozygous, missing and second-alternate calls are excluded. K76T is
+#    multiallelic and absent from the .bi. VCF, so genotypes come from
+#    K76T_longformat.csv; part of that file is phased ("1|1"), so separators
+#    are normalised first, and its quoted Alt field ("C,G") means the CSV needs
+#    a quote-aware parser rather than -F','.
+#    The groups are named for the codon-76 genotype rather than the CVIET/CVMNK
+#    haplotype because M74I and N75E are not variant in this callset — see
+#    ehh/pfcrt_genotype_full_pipeline.sh for the detail.
+# ------------------------------------------------------------------
+echo "=== pfcrt: K76 vs 76T (co-endemic sites) ==="
+python3 -c '
+import csv, sys
+with open(sys.argv[1], newline="") as fh:
+    for row in csv.DictReader(fh):
+        gt = row["Genotype"].replace("|", "/")
+        if gt == "0/0":
+            print(row["Sample"] + "\tK76")
+        elif gt == "1/1":
+            print(row["Sample"] + "\t76T")
+' "$K76T_CSV" > "$DATA_DIR/pfcrt_lookup.tmp"
+# Join with main metadata: co-endemic sites only, and only rows with a call
+awk -F'\t' -v col_id="$wgs_col" -v col_c="$country_col" -v col_y="$year_col" \
+    -v col_d="$district_col" -v co="$CO_ENDEMIC" \
+    'BEGIN{OFS="\t"; while((getline line < ARGV[1])>0){split(line,a,"\t"); grp[a[1]]=a[2]} ARGV[1]=""}
+     NR==1{print $0, "pfcrt_group"}
+     NR>1 && $col_c=="Ethiopia" && $col_y=="2024" && $col_d ~ co && ($col_id in grp){print $0, grp[$col_id]}' \
+    "$DATA_DIR/pfcrt_lookup.tmp" "$METADATA" > "$DATA_DIR/metadata_pfcrt.csv"
+rm "$DATA_DIR/pfcrt_lookup.tmp"
+printf "K76\n76T\n" > "$DATA_DIR/pfcrt_list.txt"
+run_hmmibd "$DATA_DIR/pfcrt_list.txt" "pfcrt_group" \
+    "$DATA_DIR/metadata_pfcrt.csv" "$DATA_DIR/hmmibd_pfcrt"
+run_summary "$DATA_DIR/hmmibd_pfcrt" "$DATA_DIR/pfcrt_list.txt"
+paint_chromosomes "$DATA_DIR/hmmibd_pfcrt" "High IBD regions — pfcrt K76 vs 76T (co-endemic sites)"
+echo "pfcrt complete."
+echo ""
+
+# ------------------------------------------------------------------
+# 10. Combine win10kb_annotated.tsv files from all comparisons
 # ------------------------------------------------------------------
 echo "=== Combining win10kb_annotated.tsv files ==="
 combined="$DATA_DIR/hmmibd_combined_win10kb_annotated.tsv"
