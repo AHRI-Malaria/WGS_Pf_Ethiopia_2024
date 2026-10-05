@@ -95,3 +95,4 @@ whole_genome_scripts/**/*.gz
 whole_genome_scripts/**/*.RData
 whole_genome_scripts/**/*.rdb
 whole_genome_scripts/**/*.rdx
+whole_genome_scripts/genotype_extraction/*.qmd
