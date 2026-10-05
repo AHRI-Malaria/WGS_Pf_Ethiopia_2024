@@ -1,0 +1,25 @@
+project:
+  title: "WGS variant extraction"
+
+format:
+  html:
+    css: styles.css
+    toc: true
+    toc-depth: 4 # default is 3
+    toc-title: Contents
+    anchor-sections: true
+    smooth-scroll: true
+    theme: Zephyr
+    highlight-style: dracula
+    code-fold: show
+    code-tools: true
+    code-link: true
+    code-overflow: wrap
+    fig-width: 12
+    fig-height: 8
+    fig-dpi: 300
+    fig-column: screen-inset
+    page-layout: full
+    bibliography: references.bib
+editor: source
+

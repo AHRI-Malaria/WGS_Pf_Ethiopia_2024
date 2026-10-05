@@ -1,0 +1,2160 @@
+---
+title: "Flanking Haplotype Analysis of K13 622I"
+subtitle: "Population Genomics of Plasmodium falciparum in Ethiopia and Eritrea"
+---
+
+## Setup
+
+### Load shared settings, packages, themes and colour palettes
+
+`common.R` sets the global `knitr` chunk options (warnings/messages off, figures
+centred), loads every package used in this report (tidyverse, ComplexHeatmap,
+ggtree, DT, plotly, ...) and defines the reusable ggplot themes
+(`sofonias_theme`), colour palettes and helper functions (`create_dt`, `%!in%`)
+that are referenced throughout the document.
+
+```{r}
+source("common.R")
+```
+
+## Extracting the K13 flanking region from the VCF
+
+### Subset the joint VCF to Gondar samples and to the 200 kb window around *k13*
+
+These commands were run once on the command line (kept here with `eval=FALSE`
+for provenance only). In order they:
+
+1. `bcftools view -S gondar.txt` - keep only the Gondar samples from the filtered,
+   bi-allelic, VQSLOD-filtered joint SNP call set.
+2. `bcftools index` - index the resulting compressed VCF.
+3. `bcftools view -r Pf3D7_13_v3:1625133-1825133` - cut out a 200 kb window
+   centred on the *k13* locus on chromosome 13.
+4. `vcf2matrix.py` - convert that regional VCF into a binary genotype matrix
+   (`0` = reference, `1` = alternate, `NA` = missing) which is what all the
+   downstream haplotype clustering uses.
+
+```{bash,eval=FALSE}
+# bcftools view -S /mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/flanking_haplotype_updated/gondar.txt  /mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/ethiopia_vcf/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen.filt.csq.bi.GT.miss0.2.vqslod.filt.snps_ethiopia.vcf.gz -Oz -o /mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/ethiopia_vcf/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen.filt.csq.bi.GT.miss0.2.vqslod.filt.snps_ethiopia_gonder.vcf.gz
+
+# bcftools index /mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/ethiopia_vcf/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen.filt.csq.bi.GT.miss0.2.vqslod.filt.snps_ethiopia_gonder.vcf.gz
+
+# bcftools view -r Pf3D7_13_v3:1625133-1825133 /mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/ethiopia_vcf/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen.filt.csq.bi.GT.miss0.2.vqslod.filt.snps_ethiopia_gonder.vcf.gz -Oz -o /mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/ethiopia_vcf/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen.filt.csq.bi.GT.miss0.2.vqslod.filt.snps_ethiopia_gonder_flanking_k13.vcf.gz
+
+# conda activate fastq2matrix
+
+# python ~/software/fastq2matrix/scripts/vcf2matrix.py --vcf /mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/ethiopia_vcf/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen.filt.csq.bi.GT.miss0.2.vqslod.filt.snps_ethiopia_gonder_flanking_k13.vcf.gz --no-iupacgt --na NA --threads 4 
+
+```
+
+### Build the sample sets and slice the genome-wide binary matrix
+
+Rather than starting from scratch, the genome-wide binary matrix is subset
+directly. One major factor that affects a flanking-haplotype picture is sample
+clonality, so the sample lists are built so that the all-sample result can later
+be compared with a monoclonal-only result (previously all samples were used).
+
+This chunk:
+
+* reads the genome-wide binary matrix (`*.mat.bin`) and drops the `chr`/`ref`
+  columns, leaving `pos` plus one column per sample;
+* reads the per-site $F_{WS}$ table and defines **monoclonal** samples as
+  $F_{WS} \ge 0.94$ (a slightly relaxed threshold because of small differences
+  between the locally computed and the published $F_{WS}$ values);
+* reads the *k13* genotype table and keeps only samples carrying the **622I**
+  variant (`genotype` containing a `1`);
+* builds two sample sets - Gondar + Eritrean 622I carriers, and
+  Gambella + Uganda + South-East Asia samples for the **675V** comparison;
+* slices the matrix to a 50 kb window around 622I (1,705,133-1,755,133; target
+  position 1,725,133) and a 40 kb window around 675V (1,704,974-1,744,974;
+  target position 1,724,974).
+
+```{r,eval=FALSE}
+library(ComplexHeatmap)
+library(circlize)
+library(dendextend)
+library(dplyr)
+library(readr)
+library(tidyr)
+library(readxl)
+all_mat_bin <- read.table(
+  "/mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen.filt.csq.bi.GT.miss0.2.vqslod.filt.snps.mat.bin",
+  header = T
+) %>%
+  select(-c(chr, ref))
+samples <- data.frame(sample = colnames(all_mat_bin)[-(1:0)])
+fws_site <- read.table(
+  "/mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/fws/fws_by_site.tsv",
+  header = T
+)
+monoclonal <- fws_site %>%
+  filter(fws >= 0.94) # i use this threshold since there are some differerences in calculation of fws with the one i generated and leen
+suppleme_fws <- read.csv(
+  "/mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/supplementary_Data/supp_fws_up.tsv",
+  sep = "\t"
+) %>%
+  select(sample_id, Country, fws)
+
+
+# this is to extract samples which contain the k13 622I varaint
+k13_622I <- read.csv(
+  "/mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/genotype_extraction/k13_target/target_positions_genotypes_k13.csv",
+  header = T
+) %>%
+  filter(grepl("1", genotype))
+# gambella , uganda and south east asia samples to do the flanking haplotype analysis around the 675 variant
+gambella_ug_se_675_samples <- read.table(
+  "/mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/flanking_haplotype_updated/gambella_675/gambella_ug_SE.txt",
+  header = T
+)
+
+gondar_eritrea_sample <- read.table(
+  "/mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/flanking_haplotype_updated/k13_gondar_eritrea/gondar_eritrea.txt",
+  header = T
+)
+
+eritrian_622I <- k13_622I %>%
+  filter(grepl("ERR", sample)) %>%
+  select(sample) %>%
+  dplyr:::rename(wgs_id = sample)
+
+gondar_sample_er_622I <- gondar_eritrea_sample %>% # run the first for gondar and eritria
+  filter(grepl("GM", wgs_id)) %>%
+  full_join(eritrian_622I)
+
+# this is to make sure that the samples are monoclonal
+
+# for extracting samples and positions from the binary matrix file
+df_filtered <- all_mat_bin[,
+  colnames(all_mat_bin) %in% c("pos", gondar_sample_er_622I$wgs_id)
+]
+filtered_data <- df_filtered[
+  df_filtered$pos >= 1705133 & df_filtered$pos <= 1755133,
+] # change this positions for start and end , the range size is 20000bp
+
+df_filtered_675 <- all_mat_bin[,
+  colnames(all_mat_bin) %in% c("pos", gambella_ug_se_675_samples$sample)
+]
+# 675  position is 1724974
+filtered_data_675 <- df_filtered_675[
+  df_filtered_675$pos >= 1704974 & df_filtered_675$pos <= 1744974,
+] # change this positions for start and end
+```
+
+### `make_flanking_heatmap()` - draw the SNP heatmap around a target variant
+
+Several parameters change the appearance of a flanking-haplotype plot: the size
+of the window, which samples are included, and the distance metric used for
+clustering (Euclidean here, with Ward.D2 linkage). Widening the window increases
+the chance of picking up unrelated variants, which can change the clustering, so
+the window and the metric are passed in explicitly and reported in the plot
+title.
+
+The function:
+
+* transposes the position-by-sample matrix into samples-by-position, replaces
+  missing calls with `0` and recodes heterozygous `0.5` calls as `1`;
+* drops positions that are invariant across the retained samples;
+* recodes the **target** column to `3` (target reference) / `4` (target alternate)
+  so that it gets its own colours in the legend;
+* adds a left row annotation for the collection site and a top column annotation
+  marking the target position in red;
+* clusters rows with `hclust(dist(..., "euclidean"), method = "ward.D2")`,
+  keeping the columns in genomic order, and prints a check that the heatmap rows
+  and the metadata rows are still aligned.
+
+It is then applied to the 622I set (Gondar vs Eritrea) and to the 675V set
+(Gambella vs Uganda vs South-East Asia), writing each heatmap to a PDF.
+
+```{r,eval=FALSE}
+
+make_flanking_heatmap <- function(
+  bin_file,
+  target,
+  title,
+  metadata,
+  range
+) {
+  ## -------------------------
+  ## Read & prepare matrix
+  ## -------------------------
+  mat <- bin_file
+
+  mat[is.na(mat)] <- 0
+
+  df <- as.matrix(mat)
+  rownames(df) <- mat$pos
+  df <- df[, -1]
+  df <- t(df)
+
+  full_data <- data.frame(sample = rownames(df), df, check.names = FALSE)
+  full_data[full_data == 0.5] <- 1
+  full_data[is.na(full_data)] <- 0
+  full_data <- full_data[, colSums(full_data != 0) > 0]
+
+  ## -------------------------
+  ## Encode target locus
+  ## -------------------------
+  full_data[[as.character(target)]] <- ifelse(
+    full_data[[as.character(target)]] == 1,
+    4,
+    ifelse(
+      full_data[[as.character(target)]] == 0,
+      3,
+      full_data[[as.character(target)]]
+    )
+  )
+
+  mat_final <- as.matrix(full_data[, -1])
+  rownames(mat_final) <- full_data$sample
+
+  ## -------------------------
+  ## Row annotation (metadata)
+  ## -------------------------
+  metadata_2 <- metadata %>%
+    filter(sample %in% rownames(mat_final)) %>%
+    column_to_rownames("sample")
+  metadata_2 <- metadata_2[rownames(mat_final), , drop = FALSE]
+  site_colors <- c(
+    "Ethiopia" = "#1b9e77", # teal-green
+    "Uganda" = "#7570b3", # soft purple
+    "south_east_asia" = "#66a61e", # olive green
+    "Gondar" = "#e6ab02", # mustard yellow
+    "Gambella" = "#d95f02", # orange-red (less harsh than pure red)
+    "Eritria" = "#e7298a", # pink-magenta
+    "unknown" = "#666666" # neutral gray (better than black)
+  )
+
+  ha_row <- rowAnnotation(
+    site = metadata_2$site,
+    col = list(site = site_colors)
+  )
+
+  ## -------------------------
+  ## Column annotation (target)
+  ## -------------------------
+  ha_col <- columnAnnotation(
+    Target = ifelse(colnames(mat_final) == target, "Target", ""),
+    col = list(Target = c("Target" = "red")),
+    show_annotation_name = FALSE,
+    show_legend = FALSE
+  )
+
+  ## -------------------------
+  ## Colors
+  ## -------------------------
+  col_fun <- colorRamp2(
+    breaks = c(0, 1, 3, 4),
+    colors = c(
+      "#F2F2F2", # REF
+      "#2C7FB8", # ALT
+      "#f6ff00", # Target REF
+      "#ff230a96" # Target ALT
+    )
+  )
+
+  ## -------------------------
+  ## Clustering
+  ## -------------------------
+  #rowcluster <- hclust(dist(mat_final), method = "ward.D2")
+  rowcluster <- hclust(
+    dist(mat_final, method = "euclidean"),
+    method = "ward.D2"
+  )
+  # After reordering, verify alignment
+  cat("Checking alignment:\n")
+  cat("First 5 samples in heatmap:", head(rownames(mat_final)), "\n")
+  cat("First 5 samples in metadata:", head(rownames(metadata_2)), "\n")
+  cat(
+    "Are they identical?",
+    all(rownames(mat_final) == rownames(metadata_2)),
+    "\n"
+  )
+  ## -------------------------
+  ## Heatmap
+  ## -------------------------
+  Heatmap(
+    mat_final,
+    name = title,
+    col = col_fun,
+    cluster_rows = rowcluster,
+    cluster_columns = FALSE,
+    left_annotation = ha_row,
+    top_annotation = ha_col,
+    show_row_names = TRUE,
+    show_column_names = FALSE,
+    use_raster = FALSE,
+    row_names_gp = grid::gpar(fontsize = 8),
+    column_title = paste0(
+      title,
+      " ",
+      "Target: ",
+      target,
+      " ",
+      "range= ",
+      range
+    ),
+    heatmap_legend_param = list(
+      title = "Genotype",
+      at = c(0, 1, 3, 4),
+      labels = c("REF", "ALT", "Target (REF)", "Target (ALT)")
+    )
+  )
+}
+
+
+metadata_1 <- gondar_sample_er_622I %>%
+  dplyr:::rename(sample = wgs_id) %>%
+  mutate(
+    site = case_when(
+      grepl("GM", sample) ~ "Gondar",
+      TRUE ~ "Eritria"
+    )
+  )
+
+ht2 <- make_flanking_heatmap(
+  bin_file = filtered_data,
+  target = 1725133,
+  title = "K13 622",
+  metadata = metadata_1,
+  range = "1705133-1755133"
+)
+
+cairo_pdf(
+  "/mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/flanking_haplotype_updated/k13_gondar_eritrea/eritria_622_gondar_range_20000_updated.pdf",
+  height = 6,
+  width = 15
+)
+draw(ht2)
+dev.off()
+
+
+ht_675 <- make_flanking_heatmap(
+  bin_file = filtered_data_675,
+  target = 1724974,
+  title = "K13 675",
+  range = "1704974-1744974",
+  metadata = gambella_ug_se_675_samples %>%
+    dplyr:::rename(sample = sample) %>%
+    mutate(
+      site = case_when(
+        grepl("AC", sample) ~ "Gambella",
+        grepl("SRR", sample) ~ "Uganda",
+        TRUE ~ "south_east_asia"
+      )
+    )
+)
+
+cairo_pdf(
+  "/mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/flanking_haplotype_updated/gambella_675/gambella_ug_se_675.pdf",
+  height = 6,
+  width = 15
+)
+draw(ht_675)
+dev.off()
+```
+
+### Repeat the flanking heatmaps using monoclonal samples only
+
+The same windows and the same `make_flanking_heatmap()` call are repeated after
+restricting both sample sets to monoclonal infections ($F_{WS} \ge 0.94$). This
+removes the mixed-genotype samples, whose blended calls can create artificial
+intermediate haplotypes and blur the cluster boundaries, so any shared haplotype
+block seen here is more likely to be a real, single-strain haplotype.
+
+```{r,eval=FALSE}
+gondar_er_monoclonal <- gondar_sample_er_622I %>%
+  filter(wgs_id %in% monoclonal$sample)
+
+gambella_ug_monoclonal <- gambella_ug_se_675_samples %>%
+  filter(sample %in% monoclonal$sample)
+
+df_filtered_mono <- all_mat_bin[,
+  colnames(all_mat_bin) %in% c("pos", gondar_er_monoclonal$wgs_id)
+]
+filtered_data_mono <- df_filtered_mono[
+  df_filtered_mono$pos >= 1705133 & df_filtered_mono$pos <= 1755133,
+] # change this positions for start and end , the range size is 20000bp
+
+df_filtered_675_mono <- all_mat_bin[,
+  colnames(all_mat_bin) %in% c("pos", gambella_ug_monoclonal$sample)
+]
+# 675  position is 1724974
+filtered_data_675_mono <- df_filtered_675_mono[
+  df_filtered_675_mono$pos >= 1704974 & df_filtered_675_mono$pos <= 1744974,
+]
+
+
+ht2_mono <- make_flanking_heatmap(
+  bin_file = filtered_data_mono,
+  target = 1725133,
+  title = "K13 622 monoclonal samples",
+  metadata = gondar_er_monoclonal %>%
+    dplyr:::rename(sample = wgs_id) %>%
+    mutate(
+      site = case_when(
+        grepl("GM", sample) ~ "Gondar",
+        TRUE ~ "Eritria"
+      )
+    ),
+  range = "1705133-1755133"
+)
+
+cairo_pdf(
+  "/mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/flanking_haplotype_updated/k13_gondar_eritrea/eritria_622_gondar_range_20000_updated_monoclonal.pdf",
+  height = 6,
+  width = 15
+)
+draw(ht2_mono)
+dev.off()
+
+ht_675_mono <- make_flanking_heatmap(
+  bin_file = filtered_data_675_mono,
+  target = 1724974,
+  title = "K13 675 monoclonal samples",
+  range = "1704974-1744974",
+  metadata = gambella_ug_monoclonal %>%
+    dplyr:::rename(sample = sample) %>%
+    mutate(
+      site = case_when(
+        grepl("AC", sample) ~ "Gambella",
+        grepl("SRR", sample) ~ "Uganda",
+        TRUE ~ "south_east_asia"
+      )
+    )
+)
+
+cairo_pdf(
+  "/mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/flanking_haplotype_updated/gambella_675/gambella_ug_se_675_monoclonal.pdf",
+  height = 6,
+  width = 15
+)
+draw(ht_675_mono)
+dev.off()
+```
+
+## Assembly-based haplotypes with PathWeaver
+
+### Collect the Gondar and Eritrean BAM files
+
+The SNP-matrix approach above only uses called variants. To recover the actual
+*sequence* haplotypes across the region, the reads themselves are re-assembled
+per 200 bp window with PathWeaver. This chunk gathers the BAM files (and their
+indexes) for the Gondar and Eritrean samples into a dedicated directory and
+creates the `bed/` and `pathweaver_output/` folders used by the next steps. A
+few samples fail to copy because of naming mismatches and were copied manually.
+
+```{bash, eval=FALSE}
+# total samples that are going to be extracted from gondar samples and ertria samples that are going to be extracted the region 
+cd flanking_haplotype
+ls  /mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/pfalciparum_09_24_v2/cram/*.bam  > all_samples.txt 
+
+
+wc -l  /mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/flanking_haplotype_updated/k13_gondar_eritrea/gondar_eritrea.txt
+
+# used for copying gondar and ertria bam file to new directory , there are some samples which are not copying due to string mismatch i copied them manually
+mkdir -p /mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/pfalciparum_09_24_v2/cram/gondar_ertria_samples
+src="/mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/pfalciparum_09_24_v2/cram/"
+dst="/mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/pfalciparum_09_24_v2/cram/gondar_ertria_samples"
+
+while read sample; do
+    cp "${src}/${sample}.bqsr.bam" "$dst/"
+    cp "${src}/${sample}.bqsr.bam.bai" "$dst/"
+done < /mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/flanking_haplotype_updated/k13_gondar_eritrea/gondar_eritrea.txt
+
+ls /mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/pfalciparum_09_24_v2/cram/gondar_ertria_samples/*.bam |wc -l
+
+# creating bed file for the k13 region
+mkdir -p /mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/pfalciparum_09_24_v2/cram/gondar_ertria_samples/bed
+
+# creating output for the pathweaver
+
+mkdir -p /mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/pfalciparum_09_24_v2/cram/gondar_ertria_samples/pathweaver_output
+```
+
+### Create the tiled BED file flanking the 622I variant
+
+A table of drug-resistance associated loci is defined (AP2MU, AAT1, coronin,
+ferredoxin, *k13*, *crt*, *mdr1*, *dhfr*, *dhps*, MCA2, KIC7, KIC5, KIC8, PX1)
+and filtered to **k13** only (`Pf3D7_13_v3:1724817-1728000`). That region is then
+cut into overlapping-free 200 bp windows, converted to 0-based BED coordinates,
+and windows shorter than 50 bp (the trailing remainder) are dropped. Each window
+becomes one PathWeaver "target", so the final heatmaps have one column per
+200 bp window.
+
+```{r,eval=FALSE}
+library(dplyr)
+library(tidyr)
+library(purrr)
+
+# I need to update the strand for each gene and also add additional targets
+regions <- data.frame(
+  name = c(
+    "AP2MU",
+    "AAT1",
+    "coronin",
+    "ferredoxin",
+    "k13",
+    "crt",
+    "mdr1",
+    "dhfr",
+    "dhps",
+    "MCA2",
+    "KIC7",
+    "KIC5",
+    "KIC8",
+    "PX1"
+  ),
+  coord = c(
+    "Pf3D7_12_v3:716700-720700",
+    "Pf3D7_06_v3:1213100-1217350",
+    "Pf3D7_12_v3:2091731-2094720",
+    "Pf3D7_13_v3:748160-749415",
+    "Pf3D7_13_v3:1724817-1728000",
+    "Pf3D7_07_v3:403000-406000",
+    "Pf3D7_05_v3:957500-962000",
+    "Pf3D7_04_v3:746000-751000",
+    "Pf3D7_08_v3:548000-552000",
+    "Pf3D7_14_v3:1548072-1557053",
+    "Pf3D7_08_v3:643066-645158",
+    "Pf3D7_11_v3:1525654-1532527",
+    "Pf3D7_10_v3:600950-608809",
+    "Pf3D7_07_v3:889883-899213"
+  ),
+  strand = c(
+    "+",
+    "-",
+    "+",
+    "-",
+    "-",
+    "+",
+    "+",
+    "+",
+    "+",
+    "+",
+    "-",
+    "-",
+    "-",
+    "+"
+  )
+) %>%
+  filter(name == "k13")
+
+bed_windows <- regions %>%
+  separate(coord, into = c("chr", "pos"), sep = ":") %>%
+  separate(pos, into = c("region_start", "region_end"), sep = "-") %>%
+  mutate(
+    region_start = as.numeric(region_start),
+    region_end = as.numeric(region_end)
+  ) %>%
+  rowwise() %>%
+  mutate(
+    windows = list(
+      data.frame(
+        start = seq(region_start, region_end, by = 200),
+        end = pmin(seq(region_start, region_end, by = 200) + 199, region_end)
+      )
+    )
+  ) %>%
+  unnest(windows) %>%
+  ungroup() %>%
+  mutate(start = start - 1) %>% # BED format
+  select(chr, start, end, name, strand) %>%
+  mutate(chr_pos = paste0(chr, "-", start, "-", end)) %>%
+  mutate(length = end - start) %>%
+  mutate(length = as.integer(length)) %>%
+  filter(length > 50) %>%
+  select(chr, start, end, chr_pos, length, strand)
+write.table(
+  bed_windows %>% select(chr, start, end, chr_pos, length, strand),
+  "/mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/pfalciparum_09_24_v2/cram/gondar_ertria_samples/bed/kelch_region.bed",
+  sep = "\t",
+  quote = FALSE,
+  row.names = FALSE,
+  col.names = FALSE
+)
+```
+
+### Run the PathWeaver Nextflow pipeline over the BED windows
+
+`pathweaver_extract_regions.nf` locally re-assembles the reads in each BED window
+for every BAM, calls the haplotypes per window, and then clusters them across
+samples into population haplotypes. `--qualCheck 20` drops low-quality bases
+before assembly. The output lands in `pathweaver_output/`, whose
+`allSelectedClustersInfo.tab.txt.gz` report drives the rainbow plot below.
+
+```{bash,eval=FALSE}
+conda activate nf-core
+cd  /mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/pfalciparum_09_24_v2/cram/gondar_ertria_samples
+
+# I put the output file in the genonotype_extraction folder  
+nextflow run /mnt/storage13/ahri/hrp2_analysis/elucidatornf/pathweaver_extract_regions.nf --bams_dir ./ --pw_bed_fnp /mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/pfalciparum_09_24_v2/cram/gondar_ertria_samples/bed/kelch_region.bed   --genome_fnp /mnt/storage13/ahri/hrp2_analysis/pf_genomes/genomes/Pf3D7.fasta --outdir /mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/pfalciparum_09_24_v2/cram/gondar_ertria_samples/pathweaver_output --bams_file_ending ".bam" --pw_extract_region_assemblies_extra_args="--qualCheck 20" -profile apptainer
+```
+
+### Helper functions for the haplotype rainbow plots and clustering
+
+Four reusable helpers are defined here:
+
+* **`resort_prepped_samples_by_clustering()`** - keeps only targets that were
+  successfully assembled in at least `target_sample_coverage_freq_cut_off` of
+  samples, optionally reduces each sample/target to its major allele, builds a
+  sample x haplotype presence/absence matrix, clusters it (Ward.D2 on Euclidean
+  distance) and returns the data with the sample column re-levelled in
+  dendrogram order so related samples sit next to each other in the plot.
+* **`add_haplotype_rainbow_axis_theming()`** - restores the real target and
+  sample labels on the numeric axes of the rainbow plot and rotates the x labels.
+* **`createColorListFromDf()`** - generates a named colour vector per metadata
+  column, expanding an RColorBrewer palette when there are more categories than
+  the palette provides.
+* **`matrix_to_tibble()`** - converts a square distance/similarity matrix into a
+  long `sample1`/`sample2`/`value` tibble, optionally dropping the diagonal and
+  the redundant lower triangle.
+* **`single_linkage_clusters()`** - builds a graph linking every pair below a
+  distance threshold and returns the connected components, i.e. single-linkage
+  clusters of highly related samples.
+
+```{r}
+resort_prepped_samples_by_clustering <- function(
+  prepped_allele_data,
+  sampleCol = s_Sample,
+  targetCol = p_name,
+  popUIDCol = h_popUID,
+  relAbundCol = c_AveragedFrac,
+  target_sample_coverage_freq_cut_off = 0.80,
+  by_major_allele = FALSE
+) {
+  stopifnot(is.data.frame(prepped_allele_data))
+
+  # total distinct samples (used for coverage frequency)
+  n_samples_total <- dplyr::n_distinct(dplyr::pull(
+    prepped_allele_data,
+    {{ sampleCol }}
+  ))
+
+  # targets with sufficient sample coverage
+  targets_keep <- prepped_allele_data %>%
+    ungroup() |>
+    group_by({{ targetCol }}) |>
+    dplyr::summarise(
+      sample_count = dplyr::n_distinct({{ sampleCol }})
+    ) %>%
+    dplyr::mutate(sample_freq = sample_count / n_samples_total) %>%
+    dplyr::filter(sample_freq >= target_sample_coverage_freq_cut_off) %>%
+    dplyr::pull({{ targetCol }}) |>
+    unique()
+  if (length(targets_keep) == 0) {
+    stop("no targets above sample coverage cut off")
+  }
+  dat <- prepped_allele_data %>%
+    filter({{ targetCol }} %in% targets_keep)
+
+  # optionally keep only major allele per (sample, target)
+  if (by_major_allele) {
+    dat <- dat %>%
+      dplyr::group_by({{ sampleCol }}, {{ targetCol }}) %>%
+      dplyr::slice_max(
+        order_by = {{ relAbundCol }},
+        n = 1,
+        with_ties = FALSE
+      ) %>%
+      dplyr::ungroup()
+  }
+
+  # build sample x popUID presence/absence matrix
+  dat_sp <- dat %>%
+    mutate(new_identifier = paste0({{ targetCol }}, "-", {{ popUIDCol }})) |>
+    ungroup() |>
+    dplyr::select({{ sampleCol }}, new_identifier) %>%
+    unique() |>
+    dplyr::mutate(marker = 1L) %>%
+    tidyr::pivot_wider(
+      names_from = new_identifier,
+      values_from = marker,
+      values_fill = 0L
+    )
+
+  # matrix for clustering
+  dat_sp_mat <- as.matrix(dat_sp[, 2:ncol(dat_sp)])
+  rownames(dat_sp_mat) <- dat_sp |>
+    dplyr::pull({{ sampleCol }})
+  dat_sp_mat_hc <- stats::hclust(stats::dist(dat_sp_mat), method = "ward.D2")
+  sample_levels <- rownames(dat_sp_mat)[dat_sp_mat_hc$order]
+
+  # add any samples that were filtered off to the end
+  any_missing_samples <- prepped_allele_data %>%
+    filter(!({{ sampleCol }} %in% sample_levels)) |>
+    ungroup() |>
+    dplyr::pull({{ sampleCol }})
+
+  sample_levels <- c(
+    as.character(sample_levels),
+    as.character(any_missing_samples)
+  )
+
+  prepped_allele_data %>%
+    dplyr::mutate(
+      {{ sampleCol }} := factor({{ sampleCol }}, levels = sample_levels)
+    )
+}
+
+
+add_haplotype_rainbow_axis_theming <- function(
+  rainbow_plot,
+  prepped_allele_data,
+  sampleCol = s_Sample,
+  targetCol = p_name
+) {
+  target_levels <- levels(prepped_allele_data |> pull({{ targetCol }}))
+  sample_levels <- levels(prepped_allele_data |> pull({{ sampleCol }}))
+  return(
+    rainbow_plot +
+      scale_x_continuous(
+        labels = target_levels,
+        breaks = 1:n_distinct(target_levels),
+        expand = c(0, 0)
+      ) +
+      scale_y_continuous(
+        labels = sample_levels,
+        breaks = 1:n_distinct(sample_levels),
+        expand = c(0, 0)
+      ) +
+      theme(
+        axis.text.y = element_text(family = "mono"),
+        axis.text.x = element_text(family = "mono", angle = -90, hjust = 0)
+      )
+  )
+}
+
+createColorListFromDf <- function(df, palette = "Accent") {
+  # Load required package
+  library(RColorBrewer)
+
+  color_lists <- list()
+
+  for (col_name in colnames(df)) {
+    # Get unique categories
+    categories <- unique(as.character(df[[col_name]]))
+
+    # Generate colors
+    n_colors <- length(categories)
+
+    if (n_colors <= 8) {
+      colors <- brewer.pal(max(3, n_colors), palette)[1:n_colors]
+    } else {
+      colors <- colorRampPalette(brewer.pal(8, palette))(n_colors)
+    }
+
+    # Create mapping
+    color_map <- setNames(colors, categories)
+
+    # Map colors to rows
+    color_lists[[col_name]] <- color_map[as.character(df[[col_name]])]
+  }
+
+  return(color_lists)
+}
+
+
+matrix_to_tibble <- function(
+  mat,
+  dist_col_name = "distance",
+  upper_tri_only = FALSE,
+  include_diagonal = FALSE
+) {
+  # Validate input
+  if (!is.matrix(mat)) {
+    mat <- as.matrix(mat)
+  }
+  if (is.null(rownames(mat)) || is.null(colnames(mat))) {
+    stop("Matrix must have both row names and column names.")
+  }
+
+  # Convert to long format tibble
+  result <- mat |>
+    as.data.frame() |>
+    rownames_to_column(var = "sample1") |>
+    pivot_longer(
+      cols = -sample1,
+      names_to = "sample2",
+      values_to = dist_col_name
+    ) |>
+    as_tibble()
+
+  # Optionally remove diagonal (self-comparisons)
+  if (!include_diagonal) {
+    result <- result |> filter(sample1 != sample2)
+  }
+
+  # Optionally keep only upper triangle
+  if (upper_tri_only) {
+    # Keep pairs where sample1 appears before sample2 in the row name order
+    sample_levels <- rownames(mat)
+    result <- result |>
+      filter(
+        match(sample1, sample_levels) < match(sample2, sample_levels)
+      )
+  }
+
+  return(result)
+}
+
+
+single_linkage_clusters <- function(
+  df,
+  distance_col,
+  threshold,
+  sample_col = sample,
+  other_sample_col = other_sample
+) {
+  edges <- df %>%
+    filter({{ distance_col }} <= threshold) %>%
+    transmute(
+      from = as.character({{ sample_col }}),
+      to = as.character({{ other_sample_col }})
+    )
+
+  verts <- tibble(
+    name = unique(c(
+      as.character(df |> pull({{ sample_col }})),
+      as.character(df |> pull({{ other_sample_col }}))
+    ))
+  )
+
+  g <- graph_from_data_frame(edges, directed = FALSE, vertices = verts)
+
+  comps <- components(g)$membership
+
+  tibble(
+    sample = names(comps),
+    cluster = as.integer(comps)
+  ) %>%
+    arrange(cluster, sample)
+}
+```
+
+### Haplotype rainbow plot of the *k13* region, annotated by site and 622I genotype
+
+This is the main assembly-based figure. The PathWeaver
+`allSelectedClustersInfo` report is read and the sample names are normalised
+(sequencing suffixes such as `_S12`, `_libLAN*` and the `NG-A4488_` prefix are
+stripped, `-D0` is rewritten to `_D0`) so that they match the metadata tables.
+
+Samples and targets are then filtered:
+
+* only monoclonal samples ($F_{WS} > 0.95$), with `WG24GMHC015` excluded;
+* only samples with at least 15 assembled targets;
+* only targets recovered in more than 40% of samples - a deliberately relaxed
+  cut-off, because many 200 bp windows do not assemble in every sample.
+
+`prepForRainbow()` converts the filtered table to the rainbow layout, samples are
+re-ordered by haplotype-sharing clustering, and each haplotype gets its own
+colour. Two annotation bars are then drawn to the left of the plot with
+`geom_rect()` on a new fill scale: **Site** and the **K13 622I genotype**
+(samples absent from the 622I table are set to `0/0`, i.e. wild type). The
+figure is written to both PNG and PDF at 20x20 inches.
+
+```{r}
+library(tibble)
+library(dplyr)
+library(tidyr)
+library(tidyverse)
+library(ComplexHeatmap)
+library(HaplotypeRainbows)
+library(RColorBrewer)
+library(igraph)
+
+updated_allSelectedClustersInfo <- readr::read_tsv(
+  "data/input/PathWeaverResults/reports/populationClustering/reports/allSelectedClustersInfo.tab.txt.gz"
+) %>%
+  mutate(Sample = gsub("_S[0-9]+$", "", s_Sample)) %>%
+  mutate(Sample = gsub("-D0", "_D0", Sample)) %>%
+  mutate(Sample = gsub("NG-A4488_", "", Sample)) %>%
+  mutate(s_Sample = gsub("_libLAN[0-9]+", "", Sample))
+print(length(unique(updated_allSelectedClustersInfo$s_Sample)))
+
+# updated_allSelectedClustersInfo_monos_chr11_after_rrna <- updated_allSelectedClustersInfo %>%
+#   filter(s_Sample %in% suppleme_fws$sample_id, s_Sample != "WG24GMHC015") 
+# updated_allSelectedClustersInfo_monos_chr11_after_rrna <- updated_allSelectedClustersInfo
+# updated_allSelectedClustersInfo_monos_chr11_after_rrna_prep <- HaplotypeRainbows::prepForRainbow(
+#   updated_allSelectedClustersInfo_monos_chr11_after_rrna
+# )
+
+# updated_allSelectedClustersInfo_monos_chr11_after_rrna_prep <- resort_prepped_samples_by_clustering(
+#   updated_allSelectedClustersInfo_monos_chr11_after_rrna_prep
+# )
+
+# updated_allSelectedClustersInfo_monos_chr11_after_rrna_plot <- HaplotypeRainbows::genRainbowHapPlotObj(
+#   updated_allSelectedClustersInfo_monos_chr11_after_rrna_prep
+# ) %>%
+#   add_haplotype_rainbow_axis_theming(
+#     updated_allSelectedClustersInfo_monos_chr11_after_rrna_prep
+#   )
+
+# print(updated_allSelectedClustersInfo_monos_chr11_after_rrna_plot)
+
+
+
+
+suppleme_fws <- read.csv(
+  "/mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/supplementary_Data/supp_fws_up.tsv",
+  sep = "\t"
+) %>%
+  filter(fws > 0.95) %>%
+  select(sample_id, Country, fws, Site)
+k13_622I <- read.csv(
+  "/mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/genotype_extraction/k13_target/target_positions_genotypes_k13.csv",
+  header = T
+) %>%
+  filter(grepl("1", genotype))
+
+per_sample_target_region <- updated_allSelectedClustersInfo %>%
+  group_by(s_Sample) %>%
+  summarise(count = n()) %>%
+  filter(count >= 15)
+
+
+updated_allSelectedClustersInfo_monos_chr11_after_rrna_target_count <- updated_allSelectedClustersInfo %>%
+  group_by(p_name) %>%
+  summarise(sample_count = n_distinct(s_Sample)) %>%
+  mutate(
+    sample_freq = sample_count /
+      n_distinct(
+        updated_allSelectedClustersInfo$s_Sample
+      )
+  )
+
+
+updated_allSelectedClustersInfo_monos_chr11_after_rrna_target_count_filt <- updated_allSelectedClustersInfo_monos_chr11_after_rrna_target_count %>%
+  filter(sample_freq > 0.4) # since most of the targets might not found in all of the samples i lowere the threshold to 0.4
+
+
+
+# filtering out the polyclonal samples and retaining targets which are found in most of the samples
+
+updated_allSelectedClustersInfo_monos_chr11_after_rrna <- updated_allSelectedClustersInfo %>%
+  filter(s_Sample %in% suppleme_fws$sample_id, s_Sample != "WG24GMHC015") %>%
+  filter(s_Sample %in% per_sample_target_region$s_Sample) %>%
+  filter(
+    p_name %in%
+      updated_allSelectedClustersInfo_monos_chr11_after_rrna_target_count_filt$p_name
+  )
+
+print(length(unique(
+  updated_allSelectedClustersInfo_monos_chr11_after_rrna$s_Sample
+)))
+# for plotting the reagion
+updated_allSelectedClustersInfo_monos_chr11_after_rrna_prep <- HaplotypeRainbows::prepForRainbow(
+  updated_allSelectedClustersInfo_monos_chr11_after_rrna
+)
+
+updated_allSelectedClustersInfo_monos_chr11_after_rrna_prep <- resort_prepped_samples_by_clustering(
+  updated_allSelectedClustersInfo_monos_chr11_after_rrna_prep
+)
+
+updated_allSelectedClustersInfo_monos_chr11_after_rrna_plot <- HaplotypeRainbows::genRainbowHapPlotObj(
+  updated_allSelectedClustersInfo_monos_chr11_after_rrna_prep
+) %>%
+  add_haplotype_rainbow_axis_theming(
+    updated_allSelectedClustersInfo_monos_chr11_after_rrna_prep
+  )
+sample_order <- levels(updated_allSelectedClustersInfo_monos_chr11_after_rrna_prep$s_Sample) 
+
+sample_used <- suppleme_fws %>%
+    left_join(
+    k13_622I %>% select(sample, genotype),
+    by = c("sample_id" = "sample")
+  ) %>%
+    filter(sample_id %in% sample_order)
+sample_used$genotype[is.na(sample_used$genotype)] <- '0/0'
+
+annotation_data <- sample_used %>%
+  filter(sample_id %in% sample_order) %>%
+  mutate(
+    y_position = as.numeric(factor(sample_id, levels = sample_order))
+  ) %>%
+    mutate(
+    Site = trimws(as.character(Site)),
+    genotype = trimws(as.character(genotype))
+  ) %>% 
+  select(sample_id, y_position, Site, genotype, 
+         # Add any other metadata columns you have
+          everything())
+
+unique_sites <- sort(unique(annotation_data$Site))
+
+site_colors <- setNames(
+  colorRampPalette(brewer.pal(8, "Set2"))(length(unique_sites)),
+  unique_sites
+)
+
+unique_geno <- sort(unique(annotation_data$genotype))
+
+hrp_colors <- setNames(
+  colorRampPalette(brewer.pal(4, "Set3"))(length(unique_geno)),
+  unique_geno
+)
+
+annotation_positions <- list(
+  Site = c(-0.3, -1),
+  genotype = c(-1.3, -2)
+)
+
+allSelectedClustersInfo_sub_regions_annotated <- updated_allSelectedClustersInfo_monos_chr11_after_rrna_plot +
+
+  # Annotation 1: Site information
+  ggnewscale::new_scale_fill() +
+  geom_rect(data = annotation_data,
+            aes(xmin = annotation_positions$Site[1], 
+                xmax = annotation_positions$Site[2],
+                ymin = y_position - 0.5, 
+                ymax = y_position + 0.5, 
+                fill = Site),
+            color = "black", size = 0.1) +
+  scale_fill_manual("Site", values = site_colors,
+                    guide = guide_legend(nrow = 2, title.position = "top")) +
+
+  # Annotation 2: HRP deletion status
+  ggnewscale::new_scale_fill() +
+  geom_rect(data = annotation_data,
+            aes(xmin = annotation_positions$genotype[1], 
+                xmax = annotation_positions$genotype[2],
+                ymin = y_position - 0.5, 
+                ymax = y_position + 0.5, 
+                fill = genotype),
+            color = "black", size = 0.1) +
+  scale_fill_manual("K13_622I_Genotype", values = hrp_colors,
+                    guide = guide_legend(nrow = 2, title.position = "top")) +
+        ggnewscale::new_scale_fill() 
+
+# Display the plot
+png(
+  "ouput/figure/updated_allSelectedClustersInfo_monos_k13_622_region.png",
+  width = 20,
+  height = 20,
+  units = "in",
+  res = 300,
+  bg = "white"
+)
+print(allSelectedClustersInfo_sub_regions_annotated)
+dev.off()
+
+
+
+pdf(
+  "ouput/figure/updated_allSelectedClustersInfo_monos_k13_622_region.pdf",
+  width = 20,
+  height = 20,
+  bg = "white"
+)
+
+print(allSelectedClustersInfo_sub_regions_annotated)
+
+dev.off()
+```
+### Export the filtered haplotype table for the pairwise comparison
+
+The filtered, monoclonal-only haplotype table is written out so that the
+`elucidator` pairwise haplotype-sharing step below operates on exactly the same
+samples and targets that were plotted above.
+
+```{r,eval=FALSE}
+
+write_tsv(
+  updated_allSelectedClustersInfo_monos_chr11_after_rrna,
+  "/mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/pfalciparum_09_24_v2/cram/gondar_ertria_samples/pathweaver_output/updated_allSelectedClustersInfo_monos_k13_region_filt.tsv"
+)
+```
+### Display the annotated rainbow plot
+
+Re-printed at 20 x 30 inches so that every sample label stays readable in the
+rendered HTML.
+
+```{r}
+#| fig-height: 20
+#| fig-width: 10
+print(allSelectedClustersInfo_sub_regions_annotated)
+```
+
+## Pairwise haplotype sharing (Jaccard)
+
+### Compute the pairwise Jaccard matrix with elucidator
+
+Already run once - re-running is only needed if the input table changes, and
+`--overWriteDir` should be used with care because it deletes the existing output
+directory. `doPairwiseComparisonOnHapsSharing` compares every pair of samples
+and, among the targets both samples share, computes the Jaccard index of their
+haplotypes (shared haplotypes / total haplotypes). `--writeOutDistMatrices`
+emits the square matrices consumed by the next chunk.
+
+```{bash,eval=F}
+cd /mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/pfalciparum_09_24_v2/cram/gondar_ertria_samples/pathweaver_output/
+ls /mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/pfalciparum_09_24_v2/cram/gondar_ertria_samples/pathweaver_output/
+
+docker run -it   -v /mnt/storage13/ahri:/data   nickjhathaway/elucidator:develop elucidator doPairwiseComparisonOnHapsSharing  --tableFnp /data/popgen_ethiopia_WGS/all_country_merged/pfalciparum_09_24_v2/cram/gondar_ertria_samples/pathweaver_output/updated_allSelectedClustersInfo_monos_k13_region_filt.tsv  --sampleCol s_Sample --targetNameCol p_name --popIDCol h_Consensus --relAbundCol c_ReadCnt --dout /data/popgen_ethiopia_WGS/all_country_merged/pfalciparum_09_24_v2/cram/gondar_ertria_samples/pathweaver_output/pairwise_comps_updated_allSelectedClustersInfo_mono_k13_622 --writeOutDistMatrices --overWriteDir
+```
+
+
+
+### Read the Jaccard matrix and attach the sample metadata
+
+`sampleNames.tab.txt` gives the row/column order of the matrix, which is bound to
+`jacardByHapsTarShared.tab.txt.gz` to build a named square matrix. A
+blue-white-red colour ramp is defined over the 0-1 Jaccard range, and the
+$F_{WS} > 0.95$ metadata (country, site) is re-ordered with `match()` so it lines
+up row-for-row with the matrix.
+
+```{r}
+suppleme_fws <- read.csv(
+  "/mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/supplementary_Data/supp_fws_up.tsv",
+  sep = "\t"
+) %>%
+  filter(fws > 0.95) %>%
+  select(sample_id, Country, fws, Site)
+
+sample_names <- readr::read_tsv(
+  "/mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/pfalciparum_09_24_v2/cram/gondar_ertria_samples/pathweaver_output/pairwise_comps_updated_allSelectedClustersInfo_mono_k13_622/sampleNames.tab.txt",
+  col_names = "sample"
+)
+
+jacardByHapsTarShared <- bind_cols(
+  sample_names,
+  readr::read_tsv(
+    "/mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/pfalciparum_09_24_v2/cram/gondar_ertria_samples/pathweaver_output/pairwise_comps_updated_allSelectedClustersInfo_mono_k13_622/jacardByHapsTarShared.tab.txt.gz",
+    col_names = sample_names$sample
+  )
+)
+
+
+jacardByHapsTarShared_mat <- as.matrix(jacardByHapsTarShared[,
+  2:ncol(jacardByHapsTarShared)
+])
+rownames(jacardByHapsTarShared_mat) <- jacardByHapsTarShared$sample
+
+library(circlize)
+cols <- circlize::colorRamp2(c(0, 0.5, 1), c("#2b83ba", "#f7f7f7", "#d7191c"))
+
+
+sample_meta_for_jaccard <- suppleme_fws[
+  match(rownames(jacardByHapsTarShared_mat), suppleme_fws$sample_id),
+]
+```
+
+### First Jaccard heatmap, annotated by country, site and 622I genotype
+
+The metadata is joined to the 622I genotype table (missing samples are wild type,
+`0/0`) and `createColorListFromDf()` assigns colours to each annotation level.
+The same annotation is placed on both the rows and the columns so the symmetry of
+the matrix is easy to read. The heatmap uses the default `ComplexHeatmap` row and
+column clustering; blocks of high Jaccard indicate groups of samples sharing the
+same *k13* flanking haplotypes.
+
+```{r}
+k13_622I <- read.csv(
+  "/mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/genotype_extraction/k13_target/target_positions_genotypes_k13.csv",
+  header = T
+) %>%
+  filter(grepl("1", genotype))
+sample_meta_for_jaccard_df <- sample_meta_for_jaccard %>%
+  left_join(
+    k13_622I %>% select(sample, genotype),
+    by = c("sample_id" = "sample")
+  ) %>%
+  select(Country, genotype, Site)
+sample_meta_for_jaccard_df$genotype[is.na(
+  sample_meta_for_jaccard_df$genotype
+)] <- "0/0"
+sample_meta_for_jaccard_df_cols <- createColorListFromDf(
+  sample_meta_for_jaccard_df
+)
+
+sample_meta_for_jaccard_df_anno <- rowAnnotation(
+  df = sample_meta_for_jaccard_df,
+  col = sample_meta_for_jaccard_df_cols,
+  gp = gpar(color = "black")
+)
+
+
+sample_meta_for_jaccard_df_top_anno <- HeatmapAnnotation(
+  df = sample_meta_for_jaccard_df,
+  col = sample_meta_for_jaccard_df_cols,
+  gp = gpar(color = "black")
+)
+
+jacardByHapsTarShared_mat_hp <- ComplexHeatmap::Heatmap(
+  jacardByHapsTarShared_mat,
+  col = cols,
+  name = "jaccard",
+  left_annotation = sample_meta_for_jaccard_df_anno,
+  top_annotation = sample_meta_for_jaccard_df_top_anno
+)
+
+
+cairo_pdf("ouput/figure/jacardByHapsTarShared_mat_hp.pdf", width = 20, height = 20)
+draw(
+    jacardByHapsTarShared_mat_hp,
+      merge_legends = T,
+        background = "transparent"
+          )
+      
+
+
+
+dev.off()
+```
+
+### Display the first Jaccard heatmap
+
+```{r}
+#| fig-height: 10
+#| fig-width: 10
+print(jacardByHapsTarShared_mat_hp)
+```
+
+### Single-linkage clustering and a colour-consistent Jaccard heatmap
+
+The same Jaccard matrix is reworked with tighter control over the colours. The
+matrix is flattened to a long tibble (upper triangle only), converted to a
+distance (`1 - jaccard`) and passed to `single_linkage_clusters()` with a
+threshold of 0.05 - so any two samples sharing at least 95% of their haplotypes
+are joined, and the connected components become clonal-lineage clusters.
+
+`create_consistent_colors()` then fixes the palette per annotation (hard-coded
+country and genotype colours, Brewer ramps for site and cluster) and the *same*
+list is reused for the row annotation, the column annotation and the manually
+built legends. This guarantees that a given country/genotype is the same colour
+everywhere, which was not the case when the colours were regenerated separately.
+Legends are drawn manually with `Legend()`/`packLegend()` and the figure is saved
+as PNG and PDF.
+
+```{r}
+library(igraph)
+library(ComplexHeatmap)
+library(circlize)
+
+# ==============================================================================
+# 1. PREPARE DATA
+# ==============================================================================
+
+# Your existing data preparation
+jacardByHapsTarShared_mat_1unique_chr11 <- jacardByHapsTarShared_mat
+
+jacardByHapsTarShared_mat_1unique_chr11_tib <- matrix_to_tibble(
+  jacardByHapsTarShared_mat,
+  "jaccard",
+  upper_tri_only = T
+) %>%
+  drop_na()
+
+# Cluster samples on jaccard >=0.05
+jacardByHapsTarShared_mat_1unique_chr11_tib_clusters <- single_linkage_clusters(
+  jacardByHapsTarShared_mat_1unique_chr11_tib %>%
+    mutate(inverse_jaccard = 1 - jaccard),
+  distance_col = inverse_jaccard,
+  threshold = 0.05,
+  sample_col = sample1,
+  other_sample_col = sample2
+) 
+
+# ==============================================================================
+# 2. CREATE METADATA WITH CONSISTENT COLOR MAPPING
+# ==============================================================================
+
+# Get sample metadata
+sample_meta_for_jaccard_1unique_chr11 <- suppleme_fws[
+  match(
+    rownames(jacardByHapsTarShared_mat_1unique_chr11),
+    suppleme_fws$sample_id
+  ),
+]
+
+# Create metadata dataframe
+sample_meta_df <- sample_meta_for_jaccard_1unique_chr11 %>%
+  left_join(
+    jacardByHapsTarShared_mat_1unique_chr11_tib_clusters %>%
+      dplyr::rename(sample_id = sample)
+  ) %>%
+  left_join(
+    k13_622I %>% select(sample, genotype),
+    by = c("sample_id" = "sample")
+  ) %>%
+  select(Country, genotype, cluster, Site)
+
+# Clean genotype
+sample_meta_df$genotype[is.na(sample_meta_df$genotype)] <- "0/0"
+
+# Clean any byte encoding if present
+sample_meta_df$genotype <- as.character(sample_meta_df$genotype)
+sample_meta_df$genotype <- gsub("b'|'", "", sample_meta_df$genotype)
+sample_meta_df$genotype <- trimws(sample_meta_df$genotype)
+
+# ==============================================================================
+# 3. CREATE CONSISTENT COLOR PALETTES (FIXED)
+# ==============================================================================
+
+# Function to create consistent color mapping
+create_consistent_colors <- function(df) {
+  color_list <- list()
+  
+  # Country colors
+  if ("Country" %in% colnames(df)) {
+    countries <- sort(unique(na.omit(df$Country)))
+    country_palette <- c(
+      "Ethiopia" = "#2E86AB", 
+      
+      "Eritrea" = "#F18F01",
+      "Somalia" = "#4DAF4A"
+    )
+    # Only keep countries that exist in data
+    color_list$Country <- country_palette[names(country_palette) %in% countries]
+    # Add any missing countries with new colors
+    missing_countries <- setdiff(countries, names(color_list$Country))
+    if (length(missing_countries) > 0) {
+      new_colors <- colorRampPalette(brewer.pal(8, "Set1"))(length(missing_countries))
+      names(new_colors) <- missing_countries
+      color_list$Country <- c(color_list$Country, new_colors)
+    }
+  }
+  
+  # Site colors
+  if ("Site" %in% colnames(df)) {
+    sites <- sort(unique(na.omit(df$Site)))
+    site_colors <- colorRampPalette(brewer.pal(8, "Set2"))(length(sites))
+    names(site_colors) <- sites
+    color_list$Site <- site_colors
+  }
+  
+  # Genotype colors
+  if ("genotype" %in% colnames(df)) {
+    genotypes <- sort(unique(na.omit(df$genotype)))
+    # Define standard genotype colors
+    genotype_palette <- c(
+      "0/0" = "#E41A1C",
+      "0/1" = "#377EB8",
+      "1/1" = "#4DAF4A",
+      "./." = "#984EA3",
+      "0|0" = "#E41A1C",
+      "0|1" = "#377EB8",
+      "1|1" = "#4DAF4A"
+    )
+    # Only keep genotypes that exist
+    color_list$genotype <- genotype_palette[names(genotype_palette) %in% genotypes]
+    # Add any missing genotypes
+    missing_genotypes <- setdiff(genotypes, names(color_list$genotype))
+    if (length(missing_genotypes) > 0) {
+      new_colors <- colorRampPalette(brewer.pal(8, "Set3"))(length(missing_genotypes))
+      names(new_colors) <- missing_genotypes
+      color_list$genotype <- c(color_list$genotype, new_colors)
+    }
+  }
+  
+  # Cluster colors
+  if ("cluster" %in% colnames(df)) {
+    clusters <- sort(unique(na.omit(df$cluster)))
+    cluster_colors <- colorRampPalette(brewer.pal(8, "Dark2"))(length(clusters))
+    names(cluster_colors) <- clusters
+    color_list$cluster <- cluster_colors
+  }
+  
+  return(color_list)
+}
+
+# Create consistent color mapping
+annotation_colors <- create_consistent_colors(sample_meta_df)
+
+# Print color mapping for verification
+cat("\nColor mapping:\n")
+print(annotation_colors)
+
+# ==============================================================================
+# 4. CREATE ANNOTATIONS WITH CONSISTENT COLORS
+# ==============================================================================
+
+# Row annotation - using the SAME color mapping
+sample_meta_df_anno <- rowAnnotation(
+  df = sample_meta_df,
+  col = annotation_colors,  # Use the same color mapping
+  gp = gpar(color = "black"),
+  show_annotation_name = TRUE,
+  annotation_name_gp = gpar(fontsize = 12, fontface = "italic"),
+  show_legend = FALSE  # We'll create legends separately
+)
+
+# Column annotation - using the SAME color mapping
+sample_meta_df_top_anno <- HeatmapAnnotation(
+  df = sample_meta_df,
+  col = annotation_colors,  # Use the same color mapping
+  gp = gpar(color = "black"),
+  show_annotation_name = TRUE,
+  annotation_name_gp = gpar(fontsize = 12, fontface = "italic"),
+  show_legend = FALSE
+)
+
+# ==============================================================================
+# 5. CREATE HEATMAP
+# ==============================================================================
+
+# Define color palette for Jaccard values
+col_jaccard <- colorRamp2(
+  c(0, 0.2, 0.4, 0.6, 0.8, 1),
+  c("#FFFFFF", "#FDE0DD", "#FBB4B9", "#F768A1", "#C51B8A", "#7A0177")
+)
+
+# Create heatmap
+jacardByHapsTarShared_mat_1unique_chr11_hp <- ComplexHeatmap::Heatmap(
+  jacardByHapsTarShared_mat_1unique_chr11,
+  col = col_jaccard,
+  name = "Jaccard",
+  row_dend_width = unit(5, "cm"),
+  column_dend_height = unit(5, "cm"),
+  left_annotation = sample_meta_df_anno,
+  top_annotation = sample_meta_df_top_anno,
+  cluster_rows = TRUE,
+  cluster_columns = TRUE,
+  # clustering_distance_rows = "euclidean",
+  # clustering_distance_columns = "euclidean",
+  # clustering_method_rows = "ward.D2",
+  # clustering_method_columns = "ward.D2",
+  show_row_names = TRUE,
+  show_column_names = FALSE,
+  show_heatmap_legend = FALSE
+)
+
+# ==============================================================================
+# 6. CREATE LEGENDS
+# ==============================================================================
+
+# Function to create legends from color mapping
+create_legends <- function(color_list) {
+  legends <- list()
+  
+  for (name in names(color_list)) {
+    colors <- color_list[[name]]
+    if (length(colors) > 0) {
+      legends[[name]] <- Legend(
+        title = name,
+        at = names(colors),
+        legend_gp = gpar(fill = colors),
+        title_gp = gpar(fontsize = 14, fontface = "bold"),
+        labels_gp = gpar(fontsize = 12),
+        grid_height = unit(6, "mm"),
+        grid_width = unit(6, "mm")
+      )
+    }
+  }
+  
+  return(legends)
+}
+
+# Create legends for each annotation
+annotation_legends <- create_legends(annotation_colors)
+
+# Add Jaccard legend
+jaccard_legend <- Legend(
+  col_fun = col_jaccard,
+  title = "Jaccard",
+  title_gp = gpar(fontsize = 14, fontface = "bold"),
+  labels_gp = gpar(fontsize = 12),
+  grid_height = unit(6, "mm"),
+  grid_width = unit(6, "mm")
+)
+
+# Combine all legends
+all_legends <- c(annotation_legends, list(jaccard_legend))
+
+# Pack legends
+pack_master <- do.call(
+  packLegend,
+  c(
+    all_legends,
+    list(direction = "vertical", gap = unit(8, "mm"))
+  )
+)
+
+# ==============================================================================
+# 7. SAVE PLOT
+# ==============================================================================
+
+# Create the plot
+
+png(
+  "ouput/figure/jacard_flanking_haplotype_622_filtered.png",
+  width = 20,
+  height = 20,
+  units = "in",
+  res = 300,
+  bg = "white"
+)
+
+draw(jacardByHapsTarShared_mat_1unique_chr11_hp,
+annotation_legend_list = pack_master,
+heatmap_legend_side = "right",
+annotation_legend_side= "right",merge_legends = TRUE,padding = unit(c(5, 5, 5, 5), "mm"))
+
+dev.off()
+
+pdf(
+  "ouput/figure/jacard_flanking_haplotype_622_filtered.pdf",
+  width = 20,
+  height = 20,
+  bg = "white"
+)
+
+draw(jacardByHapsTarShared_mat_1unique_chr11_hp,
+annotation_legend_list = pack_master,
+heatmap_legend_side = "right",
+annotation_legend_side= "right",merge_legends = TRUE,padding = unit(c(5, 5, 5, 5), "mm"))
+dev.off()
+
+# ==============================================================================
+# 8. ALTERNATIVE: If you want to use your existing createColorListFromDf function
+# ==============================================================================
+
+# If you want to use your existing function but ensure consistent colors:
+# 
+# # Create colors using your function
+# color_list_from_function <- createColorListFromDf(sample_meta_df)
+# 
+# # Ensure row and column annotations use the SAME color list
+# sample_meta_df_anno <- rowAnnotation(
+#   df = sample_meta_df,
+#   col = color_list_from_function,  # Same list
+#   gp = gpar(color = "black")
+# )
+# 
+# sample_meta_df_top_anno <- HeatmapAnnotation(
+#   df = sample_meta_df,
+#   col = color_list_from_function,  # Same list
+#   gp = gpar(color = "black")
+# )
+
+# ==============================================================================
+# 9. VERIFICATION
+# ==============================================================================
+
+cat("\nVerification:\n")
+cat("Number of samples:", nrow(sample_meta_df), "\n")
+cat("Columns in metadata:", paste(colnames(sample_meta_df), collapse = ", "), "\n")
+cat("Unique genotypes:", paste(unique(sample_meta_df$genotype), collapse = ", "), "\n")
+cat("Unique countries:", paste(unique(sample_meta_df$Country), collapse = ", "), "\n")
+cat("Unique clusters:", paste(unique(sample_meta_df$cluster), collapse = ", "), "\n")
+
+# message("\nPlot saved to: ", pdf_file)
+```
+
+### Display the colour-consistent Jaccard heatmap
+
+```{r}
+#| fig-height: 10
+#| fig-width: 20
+print(jacardByHapsTarShared_mat_1unique_chr11_hp)
+```
+```{r}
+#| results: asis
+#| echo: false
+cat(createDownloadLink("ouput/figure/jacard_flanking_haplotype_622_filtered.pdf"))
+```
+## Comparing haplotype sharing with genome-wide relatedness
+
+### Build a split heatmap: hmmIBD below the diagonal, Jaccard above it
+
+This chunk asks whether samples that share *k13* flanking haplotypes are also
+related genome-wide. The `hmmIBD` output (`fract_sites_IBD` per pair) is read and
+restricted to the pairs that also have a Jaccard value, using an order-independent
+`pair_id` built with `pmin()`/`pmax()`. Self-comparisons are added with a value of
+1 so the diagonal is complete.
+
+Two symmetric matrices are filled over the same sample set (monoclonal,
+$F_{WS} > 0.95$), and the samples are ordered by country, then site, then 622I
+genotype rather than by clustering, so the geographic blocks are directly
+comparable between the two halves. Genotype strings are cleaned first (leftover
+`b'...'` byte encoding, quotes, whitespace, `|` to `/`) because otherwise the
+annotation colours silently fail to match.
+
+The heatmap is drawn with `rect_gp = gpar(type = "none")` and a custom
+`layer_fun`, which paints each cell manually: the **lower triangle** uses the IBD
+colour ramp (binned at 0.2 / 0.5 / 0.8), the **upper triangle** uses the Jaccard
+ramp, and the diagonal is black. All legends are packed manually and the figure
+is written to PDF and PNG.
+
+```{r}
+# ==============================================================================
+# 1. LOAD AND PREPARE DATA
+# ==============================================================================
+
+# Load your data
+all_hmmibd_fract <- read.table(
+  "/mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/hmmIBD/all_samples/hmmIBD_sample_maf0.01.out.hmm_fract.txt",
+  header = TRUE,
+  stringsAsFactors = FALSE
+) %>%
+  select(sample1, sample2, fract_sites_IBD) %>%
+  mutate(
+    pair_id = paste(
+      pmin(sample1, sample2),
+      pmax(sample1, sample2),
+      sep = "_"
+    )
+  )
+
+# Your Jaccard data
+jacard2 <- jacardByHapsTarShared_mat_1unique_chr11_tib %>%
+  mutate(
+    pair_id = paste(
+      pmin(sample1, sample2),
+      pmax(sample1, sample2),
+      sep = "_"
+    )
+  )
+
+# Filter IBD to only pairs present in Jaccard
+high_ibd <- all_hmmibd_fract %>%
+  filter(pair_id %in% jacard2$pair_id)
+
+# FWS filter - samples with FWS > 0.95
+fws_filtered <- suppleme_fws %>%
+  filter(fws > 0.95) %>%
+  select(sample_id, Country, fws, Site)
+# Create merged plot dataframe
+plot_df <- merge(
+  high_ibd,
+  jacard2,
+  by = "pair_id"
+) %>%
+  select(sample1.x, sample2.x, fract_sites_IBD, jaccard) %>%
+  dplyr::rename(sample1 = sample1.x, sample2 = sample2.x)
+
+unique1_sample <- unique(plot_df$sample1)
+
+similar_samples <- data.frame(
+  sample1 = unique1_sample,
+  sample2 = unique1_sample,
+  fract_sites_IBD = 1,
+  jaccard = 1
+)
+
+plot_df <- plot_df %>%
+  dplyr::bind_rows(similar_samples)
+# ==============================================================================
+# 2. BUILD MATRICES FOR HEATMAP
+# ==============================================================================
+
+# Get unique samples from both matrices (only those with FWS > 0.95)
+# ==============================================================================
+# 2. BUILD MATRICES FOR HEATMAP
+# ==============================================================================
+
+# Get unique samples from both matrices (only those with FWS > 0.95)
+fws_samples <- fws_filtered$sample_id
+all_samples <- unique(c(plot_df$sample1, plot_df$sample2))
+samples_to_keep <- intersect(all_samples, fws_samples)
+
+# Create empty matrices
+n_samples <- length(samples_to_keep)
+mat_ibd <- matrix(NA, nrow = n_samples, ncol = n_samples)
+mat_jaccard <- matrix(NA, nrow = n_samples, ncol = n_samples)
+rownames(mat_ibd) <- colnames(mat_ibd) <- samples_to_keep
+rownames(mat_jaccard) <- colnames(mat_jaccard) <- samples_to_keep
+
+# Fill matrices
+for (i in seq_len(nrow(plot_df))) {
+  s1 <- plot_df$sample1[i]
+  s2 <- plot_df$sample2[i]
+
+  if (s1 %in% samples_to_keep && s2 %in% samples_to_keep) {
+    mat_ibd[s1, s2] <- mat_ibd[s2, s1] <- plot_df$fract_sites_IBD[i]
+    mat_jaccard[s1, s2] <- mat_jaccard[s2, s1] <- plot_df$jaccard[i]
+  }
+}
+
+# Set diagonals
+diag(mat_ibd) <- 1
+diag(mat_jaccard) <- 1
+
+# ==============================================================================
+# 3. METADATA AND ORDERING (FIXED GENOTYPE ISSUE)
+# ==============================================================================
+
+# Create metadata for the samples
+sample_meta <- fws_filtered %>%
+  filter(sample_id %in% samples_to_keep) %>%
+  select(sample_id, Country, Site) %>%
+  left_join(
+    k13_622I %>% select(sample, genotype),
+    by = c("sample_id" = "sample")
+  )
+
+# FIX 1: Clean genotype column - remove any byte encoding and whitespace
+sample_meta$genotype <- as.character(sample_meta$genotype) # Convert to character
+sample_meta$genotype <- gsub("b'|'", "", sample_meta$genotype) # Remove b' and '
+sample_meta$genotype <- trimws(sample_meta$genotype) # Remove whitespace
+
+# FIX 2: Replace NAs with "0/0"
+sample_meta$genotype[is.na(sample_meta$genotype)] <- "0/0"
+
+# FIX 3: Clean any other unexpected characters
+sample_meta$genotype <- gsub('[""]', "", sample_meta$genotype) # Remove quotes
+
+# FIX 4: Standardize genotype notation (optional - if you have different formats)
+# Convert "1/1" and "1|1" to same format if needed
+sample_meta$genotype <- gsub("\\|", "/", sample_meta$genotype) # Convert | to /
+
+# Check unique genotype values after cleaning
+cat("Unique genotype values after cleaning:\n")
+print(unique(sample_meta$genotype))
+
+# Order samples by Country, Site, genotype
+ordering_df <- sample_meta %>%
+  arrange(Country, Site, genotype, sample_id)
+
+order_idx <- match(ordering_df$sample_id, rownames(mat_ibd))
+
+# Reorder matrices
+mat_ibd <- mat_ibd[order_idx, order_idx, drop = FALSE]
+mat_jaccard <- mat_jaccard[order_idx, order_idx, drop = FALSE]
+
+# ==============================================================================
+# 4. CREATE COLOR PALETTES (FIXED)
+# ==============================================================================
+
+# Prepare annotations with consistent colors
+country_colors <- c("Ethiopia" = "#2E86AB",  "Eritrea" = "#F18F01")
+
+# Site colors
+unique_sites <- unique(ordering_df$Site)
+site_palette <- colorRampPalette(brewer.pal(8, "Set2"))(length(unique_sites))
+site_colors <- setNames(site_palette, unique_sites)
+
+# FIX 5: Genotype colors - ensure all genotype values are properly named
+unique_genotypes <- unique(ordering_df$genotype)
+# Create a clean genotype color palette
+genotype_palette <- c(
+  "0/0" = "#E41A1C", # Red for reference
+  "0/1" = "#377EB8", # Blue for heterozygous
+  "b'1/1'" = "#4DAF4A", # Green for homozygous alternate
+  "./." = "#984EA3", # Purple for missing
+  "NA" = "#FF7F00" # Orange for NA
+)
+
+# Only keep colors for genotypes that actually exist in your data
+existing_genotypes <- intersect(names(genotype_palette), unique_genotypes)
+genotype_colors <- genotype_palette[existing_genotypes]
+
+# If there are genotypes not in the palette, add them with new colors
+new_genotypes <- setdiff(unique_genotypes, names(genotype_palette))
+if (length(new_genotypes) > 0) {
+  new_colors <- colorRampPalette(brewer.pal(8, "Set3"))(length(new_genotypes))
+  names(new_colors) <- new_genotypes
+  genotype_colors <- c(genotype_colors, new_colors)
+}
+
+cat("\nGenotype color mapping:\n")
+print(genotype_colors)
+
+# ==============================================================================
+# 5. VERIFY ANNOTATION COLOR MAPPING
+# ==============================================================================
+
+# Check that all values in genotype column have colors defined
+genotype_values <- unique(ordering_df$genotype)
+missing_colors <- setdiff(genotype_values, names(genotype_colors))
+
+if (length(missing_colors) > 0) {
+  cat(
+    "Warning: Missing colors for genotypes:",
+    paste(missing_colors, collapse = ", "),
+    "\n"
+  )
+  # Add colors for missing genotypes
+  additional_colors <- colorRampPalette(brewer.pal(8, "Set3"))(length(
+    missing_colors
+  ))
+  names(additional_colors) <- missing_colors
+  genotype_colors <- c(genotype_colors, additional_colors)
+}
+
+# ==============================================================================
+# 6. CREATE ANNOTATIONS (FIXED)
+# ==============================================================================
+
+# Create annotation color list
+annotation_colors <- list(
+  Country = country_colors,
+  Site = site_colors,
+  genotype = genotype_colors
+)
+
+# Row annotation
+row_ha <- rowAnnotation(
+  Country = ordering_df$Country,
+  Site = ordering_df$Site,
+  genotype = ordering_df$genotype,
+  col = annotation_colors,
+  show_annotation_name = TRUE,
+  annotation_name_gp = gpar(fontsize = 14, fontface = "italic"),
+  show_legend = FALSE
+)
+
+# Column annotation
+col_ha <- HeatmapAnnotation(
+  Country = ordering_df$Country,
+  Site = ordering_df$Site,
+  genotype = ordering_df$genotype,
+  col = annotation_colors,
+  show_annotation_name = TRUE,
+  annotation_name_gp = gpar(fontsize = 14, fontface = "italic"),
+  show_legend = FALSE
+)
+
+# ==============================================================================
+# 7. CREATE HEATMAP
+# ==============================================================================
+
+# Color palettes for heatmap
+col_ibd <- colorRamp2(
+    c(0, 0.2, 0.2+1e-8, 0.5, 0.5+1e-8, 0.8, 0.8+1e-8, 1),
+    c("#FFFFFF", "#FFFFFF",
+      "#ddd057", "#ddd057",
+      "#6D819E", "#6D819E",
+      "#102A43", "#102A43")
+)
+
+col_jaccard <- colorRamp2(
+  c(0, 0.2, 0.4, 0.6, 0.8, 1),
+  c("#FFFFFF", "#FDE0DD", "#FBB4B9", "#F768A1", "#C51B8A", "#7A0177")
+)
+
+# Main heatmap with custom layer function
+ht <- Heatmap(
+  mat_ibd,
+  name = "IBD / Jaccard",
+  col = col_ibd,
+  cluster_rows = FALSE,
+  cluster_columns = FALSE,
+  left_annotation = row_ha,
+  top_annotation = col_ha,
+  row_names_gp = gpar(fontsize = 8),
+  column_names_gp = gpar(fontsize = 8),
+  show_heatmap_legend = FALSE,
+  border = TRUE,
+  rect_gp = gpar(type = "none"),
+  use_raster = TRUE,
+  raster_quality = 5,
+  layer_fun = function(j, i, x, y, w, h, fill) {
+    # Lower triangle: IBD values
+    sel_low <- i > j
+    if (any(sel_low)) {
+      vals_ibd <- mat_ibd[cbind(i[sel_low], j[sel_low])]
+      grid.rect(
+        x[sel_low],
+        y[sel_low],
+        w[sel_low],
+        h[sel_low],
+        gp = gpar(fill = col_ibd(vals_ibd), col = NA)
+      )
+    }
+
+    # Upper triangle: Jaccard values
+    sel_up <- i < j
+    if (any(sel_up)) {
+      vals_jaccard <- mat_jaccard[cbind(i[sel_up], j[sel_up])]
+      grid.rect(
+        x[sel_up],
+        y[sel_up],
+        w[sel_up],
+        h[sel_up],
+        gp = gpar(fill = col_jaccard(vals_jaccard), col = NA)
+      )
+    }
+
+    # Diagonal: grey
+    sel_diag <- i == j
+    if (any(sel_diag)) {
+      grid.rect(
+        x[sel_diag],
+        y[sel_diag],
+        w[sel_diag],
+        h[sel_diag],
+        gp = gpar(fill = "black", col = NA)
+      )
+    }
+  }
+)
+
+# ==============================================================================
+# 8. LEGENDS
+# ==============================================================================
+
+lgd_ibd <- Legend(
+  col_fun = col_ibd,
+  title = "IBD (fraction)",
+  title_gp = gpar(fontsize = 14, fontface = "bold"),
+  labels_gp = gpar(fontsize = 12),
+  grid_height = unit(6, "mm"),
+  grid_width = unit(6, "mm")
+)
+
+lgd_jaccard <- Legend(
+  col_fun = col_jaccard,
+  title = "Jaccard",
+  title_gp = gpar(fontsize = 14, fontface = "bold"),
+  labels_gp = gpar(fontsize = 12),
+  grid_height = unit(6, "mm"),
+  grid_width = unit(6, "mm")
+)
+
+lgd_country <- Legend(
+  title = "Country",
+  at = names(country_colors),
+  legend_gp = gpar(fill = country_colors),
+  title_gp = gpar(fontsize = 14, fontface = "bold"),
+  labels_gp = gpar(fontsize = 12),
+  grid_height = unit(6, "mm"),
+  grid_width = unit(6, "mm")
+)
+
+lgd_site <- Legend(
+  title = "Site",
+  at = names(site_colors),
+  legend_gp = gpar(fill = site_colors),
+  title_gp = gpar(fontsize = 14, fontface = "bold"),
+  labels_gp = gpar(fontsize = 12),
+  grid_height = unit(6, "mm"),
+  grid_width = unit(6, "mm")
+)
+
+lgd_genotype <- Legend(
+  title = "Genotype",
+  at = names(genotype_colors),
+  legend_gp = gpar(fill = genotype_colors),
+  title_gp = gpar(fontsize = 14, fontface = "bold"),
+  labels_gp = gpar(fontsize = 12),
+  grid_height = unit(6, "mm"),
+  grid_width = unit(6, "mm")
+)
+
+# Pack legends
+pack_master <- packLegend(
+  lgd_country,
+  lgd_site,
+  lgd_genotype,
+  lgd_ibd,
+  lgd_jaccard,
+  direction = "vertical",
+  gap = unit(8, "mm")
+)
+
+pdf(
+  "ouput/figure/jacard_hmmIBD_flanking_haplotype_622_filt_corrected.pdf",
+  width = 20,
+  height = 20,
+  bg = "white"
+)
+
+draw(
+    ht,
+      annotation_legend_list = pack_master,
+        heatmap_legend_side = "right",
+          annotation_legend_side = "right",
+            padding = unit(c(5, 5, 5, 5), "mm")
+            )
+
+
+dev.off()
+# ==============================================================================
+# 9. SAVE PLOT
+# ==============================================================================
+
+out_dir <- "/mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/whole_genome_scripts/flanking_haplotype/flanking_haplotype_k13/ouput/figure"
+# dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
+
+# Create the plot
+png(
+  "ouput/figure/jacard_hmmIBD_flanking_haplotype_622_filt_corrected.png",
+  width = 20,
+  height = 20,
+  units = "in",
+  res = 300,
+  bg = "white"
+)
+draw(
+  ht,
+   annotation_legend_list = pack_master,
+   heatmap_legend_side = "right",
+    annotation_legend_side = "right",
+     padding = unit(c(5, 5, 5, 5), "mm"))
+
+
+
+
+
+dev.off()
+# # Save as PNG
+# png_file <- file.path(
+#   out_dir,
+#   "jacard_hmmIBD_flanking_haplotype_622.png"
+# )
+# png(
+#   filename = png_file,
+#   width = 16,
+#   height = 14,
+#   units = "in",
+#   res = 300,
+#   bg = "white"
+# )
+# grid.newpage()
+# grid.draw(relatedness_heatmap)
+# dev.off()
+
+# # Save as PDF
+# pdf_file <- file.path(out_dir, "ibd_jaccard_heatmap_fws_filtered.pdf")
+# pdf(file = pdf_file, width = 16, height = 14, bg = "white")
+# grid.newpage()
+# grid.draw(relatedness_heatmap)
+# dev.off()
+
+# # Display in R
+# grid.newpage()
+# grid.draw(relatedness_heatmap)
+
+# message("Plot saved to: ", png_file)
+```
+
+### Display the combined IBD / Jaccard heatmap
+
+Drawn with `draw()` rather than `print()` so that the manually packed annotation
+legends (country, site, genotype, IBD and Jaccard scales) are included - this is
+why the figure was previously missing from the rendered HTML.
+
+```{r}
+#| fig-height: 20
+#| fig-width: 20
+draw(
+  ht,
+  annotation_legend_list = pack_master,
+  heatmap_legend_side = "right",
+  annotation_legend_side = "right",
+  padding = unit(c(5, 5, 5, 5), "mm")
+)
+```
+```{r}
+#| results: asis
+#| echo: false
+cat(createDownloadLink("ouput/figure/jacard_hmmIBD_flanking_haplotype_622_filt_corrected.pdf"))
+```
+## Genetic diversity across the *k13* windows
+
+### Prepare the PathWeaver metadata file
+
+To let PathWeaver compute population-genetic statistics per group, a metadata
+file is assembled. The *k13* 622 metadata is restricted to Ethiopia and Eritrea
+and a `k13_622_genotype` column is derived (`mutant` when the mutation string
+contains `R622I`, otherwise `wildtype`). The sample identifiers in the PathWeaver
+`allBasicInfo` report are normalised in the same way as before and joined to the
+metadata, so that the file uses exactly the identifiers PathWeaver expects.
+
+```{r,eval=FALSE}
+kelch_metadata <- read.csv("/mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/logestic_regression/hrp_status/kelch_622_metadata.csv",header=T)%>%
+  filter(Country %in% c("Ethiopia","Eritrea"))%>%
+  mutate(k13_622_genotype = ifelse(grepl("R622I", mutation_test), "mutant" , "wildtype"))%>%
+  dplyr::select(Sample,Country,Site,k13_622_genotype,fws)
+print(length(unique(kelch_metadata$sample)))
+# i got the pathweaver output to extract the samples that i need to use for the metadata information 
+allbasicinfo <- readr::read_tsv("/mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/pfalciparum_09_24_v2/cram/gondar_ertria_samples/pathweaver_output/PathWeaverResults/reports/populationClustering/reports/allBasicInfo.tab.txt.gz",col_names = T)%>%
+  select(sample)%>%
+  distinct()%>%
+  mutate(Sample = gsub("_S[0-9]+$", "", sample))  %>% 
+  mutate(Sample = gsub("-D0", "_D0", Sample)) %>% 
+  mutate(Sample = gsub("NG-A4488_", "", Sample)) %>% 
+  mutate(Sample = gsub("_libLAN[0-9]+", "", Sample))
+print(length(unique(allbasicinfo$Sample)))
+kelch_metadata_merged <- allbasicinfo %>%
+  left_join(kelch_metadata, by = c("Sample" = "Sample"))%>%
+  dplyr::select(sample,Country,Site,k13_622_genotype,fws)%>%
+  dplyr::rename(Sample = sample)
+print(length(unique(kelch_metadata_merged$Sample)))
+
+write_tsv(kelch_metadata_merged ,"/mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/pfalciparum_09_24_v2/cram/gondar_ertria_samples/kelch_622_metadata.tsv")
+```
+### Re-run PathWeaver with metadata and variant calling for population statistics
+
+The same pipeline is run again, this time with `--meta_fnp` pointing at the
+metadata file, `--meta_fields_to_calc_pop_diffs Country,Site,K13_622_genotype`
+to request between-group differentiation statistics, and `--do_variant_calling`
+to produce the diversity reports. `--pw_pop_clustering_ncpus 1` is required
+because the clustering step core-dumped with multiple threads. Note that a
+number of samples are not present in the metadata file and are therefore skipped.
+
+```{bash,eval=FALSE}
+conda activate nf-core
+cd  /mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/pfalciparum_09_24_v2/cram/gondar_ertria_samples
+
+mkdir -p /mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/pfalciparum_09_24_v2/cram/gondar_ertria_samples/pathweaver_output/popstat 
+
+# there was a core dumpe so i decrease the thread to 1 and it works but there are a lot of samples which are not found in the metadata 
+nextflow run /mnt/storage13/ahri/hrp2_analysis/elucidatornf/pathweaver_extract_regions.nf --bams_dir ./ --pw_bed_fnp /mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/pfalciparum_09_24_v2/cram/gondar_ertria_samples/bed/kelch_region.bed   --genome_fnp /mnt/storage13/ahri/hrp2_analysis/pf_genomes/genomes/Pf3D7.fasta --outdir /mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/pfalciparum_09_24_v2/cram/gondar_ertria_samples/pathweaver_output/popstat/ --bams_file_ending ".bam" --pw_extract_region_assemblies_extra_args="--qualCheck 20" -profile apptainer --meta_fnp /mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/pfalciparum_09_24_v2/cram/gondar_ertria_samples/kelch_622_metadata.tsv  --pw_pop_clustering_ncpus 1 --meta_fields_to_calc_pop_diffs Country,Site,K13_622_genotype  --do_variant_calling
+
+ls /mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/pfalciparum_09_24_v2/cram/gondar_ertria_samples/pathweaver_output/popstat/
+```
+
+### Expected heterozygosity, coverage and haplotype counts per target
+
+`allDiversityMeasures.tsv.gz` reports one row per 200 bp target. Three stacked
+panels are built with **patchwork**:
+
+* **He** - expected heterozygosity, i.e. how diverse each window is. Windows
+  around a recently selected variant are expected to show reduced diversity.
+* **Sample count** - how many samples assembled that window, which shows whether a
+  low He is real or simply the result of poor coverage.
+* **Total haplotypes** - the number of distinct sequence haplotypes per window.
+
+The x-axis labels are removed from the top two panels because all three share the
+same target ordering. The combined figure is saved at 8 x 10 inches, 300 dpi.
+
+```{r}
+library(dplyr)
+library(readr)
+library(ggplot2)
+  all_diversity_measures <- readr::read_tsv("/mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/pfalciparum_09_24_v2/cram/gondar_ertria_samples/pathweaver_output/popstat/PathWeaverResults/variantCalls/reports/popGenetics/allDiversityMeasures.tsv.gz")
+
+library(ggplot2)
+library(patchwork)
+df <- all_diversity_measures
+# He
+p1 <- ggplot(df, aes(target, he)) +
+  geom_col(fill = "steelblue") +
+  theme_bw() +
+  labs(y = "Expected heterozygosity", x = NULL) +
+  theme(axis.text.x = element_blank())
+
+# Sample count
+p2 <- ggplot(df, aes(target, sampleCount)) +
+  geom_col(fill = "darkgreen") +
+  theme_bw() +
+  labs(y = "Sample count", x = NULL) +
+  theme(axis.text.x = element_blank())
+
+# Total haplotypes
+p3 <- ggplot(df, aes(target, totalHaplotypes)) +
+  geom_col(fill = "tomato") +
+  theme_bw() +
+  labs(y = "Total haplotypes", x = "Target") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+p1 / p2 / p3
+combined_plot <- p1 / p2 / p3
+
+ggsave(
+  filename = "ouput/figure/k13_hetrozygosity_region.png",
+  plot = combined_plot,
+  width = 8,      # inches
+  height = 10,    # inches
+  dpi = 300       # publication quality
+)
+```
+
+### Display the diversity panels
+
+```{r}
+#| results: asis
+#| echo: false
+cat(createDownloadLink("ouput/figure/k13_hetrozygosity_region.png"))
+```

@@ -1,0 +1,375 @@
+---
+title: "Untitled"
+author: "Metmiku"
+date: "2026-01-09"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+```{r}
+library(readr)
+library(tidyr)
+library(dplyr)
+library(ggplot2)
+```
+
+```{r}
+#hrp deletion call status
+diffmeasures <- read_table(
+  "/mnt/storage13/ahri/hrp2_analysis/pop_stat/PathWeaverResults/variantCalls/reports/popGenetics/all_hrp_deletion_call_diffMeasures.tsv.gz"
+)
+
+
+divmeasures <- read_table(
+  "/mnt/storage13/ahri/hrp2_analysis/pop_stat/PathWeaverResults/variantCalls/reports/popGenetics/all_hrp_deletion_call_divMeasures.tsv.gz"
+)
+
+pairwisediffmeasure_hrp <- read_table(
+  "/mnt/storage13/ahri/hrp2_analysis/pop_stat/PathWeaverResults/variantCalls/reports/popGenetics/all_hrp_deletion_call_pairwiseDiffMeasures.tsv.gz"
+)
+```
+
+
+```{r}
+ggplot(diffmeasures, aes(x = JostD, y = Gst)) +
+  geom_point()
+
+#for counting the number of sammples for each hrp2 deletion group
+
+p2 <- ggplot(
+  divmeasures,
+  aes(x = hrp_deletion_call, y = sampleCount, fill = hrp_deletion_call)
+) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.7) +
+  geom_jitter(width = 0.15, alpha = 0.4, size = 1) +
+  labs(
+    x = "HRP deletion status",
+    y = "Sample count"
+  ) +
+  theme_classic() +
+  theme(legend.position = "none")
+
+
+#tajumaD value
+divmeasures_taj <- divmeasures %>%
+  #mutate(TajimaDPVal = as.numeric(TajimaDPVal)) %>%
+  filter(TajimaDPVal <= 0.05)
+
+p1 <- ggplot(
+  divmeasures,
+  aes(x = target, y = TajimaD, colour = hrp_deletion_call)
+) +
+  geom_point(size = 2, alpha = 0.8) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  coord_flip() +
+  labs(
+    x = "Target locus",
+    y = "Tajima's D",
+    colour = "HRP deletion"
+  ) +
+  theme_classic()
+
+
+p3 <- ggplot(divmeasures, aes(x = he, fill = hrp_deletion_call)) +
+  geom_density(alpha = 0.4) +
+  theme_classic()
+
+
+p4 <- ggplot(
+  pairwisediffmeasure_concat,
+  aes(x = Gst, y = JostD, color = comparison_group)
+) +
+  geom_jitter(alpha = 0.4, width = 0.003, height = 0.003, size = 1.5) +
+  scale_color_viridis_d(option = "D") +
+  labs(
+    x = "G′ST (GST)",
+    y = "Jost's D",
+    color = "Comparison group"
+  ) +
+  theme_classic() +
+  geom_smooth(method = "lm", se = FALSE, linewidth = 0.7)
+
+library(cowplot)
+
+combined_plot <- plot_grid(
+  p1,
+  p2,
+  p3,
+  p4,
+  labels = "AUTO",
+  ncol = 2
+)
+
+ggsave(
+  "//wsl.localhost/Ubuntu-24.04/home/ahri2/Leucodepleted/whole-genome-sequence-analysis/hrp2_deltion/pop_stat/popGenetics/combined_diversity_plots.png",
+  combined_plot,
+  width = 12,
+  height = 10,
+  dpi = 300
+)
+```
+
+```{r}
+library(dplyr)
+library(tibble)
+library(gt)
+
+#pairwise comparison 
+pairwisediffmeasure_concat <- pairwisediffmeasure %>% 
+      mutate(comparison_group = paste0(hrp_deletion_call1,"-",hrp_deletion_call2)) 
+        #filter(!grepl("hrp2_only",comparison_group))
+        ggplot(pairwisediffmeasure_concat, aes(x = comparison_group, y = JostD, fill = comparison_group)) +
+          geom_violin(trim = FALSE, alpha = 0.6) +
+            geom_boxplot(width = 0.15, outlier.shape = NA) +
+              labs(
+                  x = "Comparison type",
+                      y = "Jost's D"
+                        ) +
+                          
+library(dplyr)
+library(tibble)
+library(gt)
+
+quick_summary <- function(x, probs = c(0.25, 0.5, 0.75)) {
+  q <- quantile(x, probs = probs, na.rm = TRUE)
+
+  tibble(
+    N = sum(!is.na(x)),
+    Mean = mean(x, na.rm = TRUE),
+    SD = sd(x, na.rm = TRUE),
+    Min = min(x, na.rm = TRUE),
+    Q25 = q[1],
+    Median = q[2],
+    Q75 = q[3],
+    Max = max(x, na.rm = TRUE)
+  )
+}
+
+supp_table <- pairwisediffmeasure_hrp %>% 
+  filter(popMeta1_samples > 10,
+         popMeta2_samples > 10) %>%
+  rowwise() %>% 
+  mutate(
+    pair_id = paste0(
+      sort(c(hrp_deletion_call1, hrp_deletion_call2)),
+      collapse = " vs "
+    )
+  ) %>% 
+  ungroup() %>%
+  group_by(pair_id) %>% 
+  summarise(quick_summary(JostD), .groups = "drop") %>% 
+  arrange(desc(Mean)) %>%
+  mutate(across(where(is.numeric), ~ round(.x, 3)))
+
+
+supp_table_gt <- supp_table %>%
+  gt() %>%
+  tab_header(
+    title = "JostD comparison hrp status",
+    subtitle = "Summary statistics of pairwise Jost's D values"
+  ) %>%
+  cols_label(
+    pair_id = "Comparison",
+    N = "N",
+    Mean = "Mean",
+    SD = "SD",
+    Min = "Min",
+    Q25 = "25th percentile",
+    Median = "Median",
+    Q75 = "75th percentile",
+    Max = "Max"
+  ) %>%
+  fmt_number(
+    columns = where(is.numeric),
+    decimals = 3
+  ) %>%
+  tab_options(
+    table.font.size = px(12),
+    data_row.padding = px(4)
+  )
+
+gtsave(supp_table_gt, "/mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/whole_genome_scripts/jostD_analysis/supplementary_table.html")
+
+```
+```{r}
+library(dplyr)
+library(tibble)
+library(gt)
+
+pairwisediffmeasure_site <- read_table(
+  "/mnt/storage13/ahri/hrp2_analysis/pop_stat/PathWeaverResults/variantCalls/reports/popGenetics/all_site_pairwiseDiffMeasures.tsv.gz"
+)
+
+
+pairwisediffmeasure_concat_site <- pairwisediffmeasure_site %>%
+  mutate(comparison_group = paste0(site1, "-", site2))
+
+pairwisediffmeasure_concat_site_clean <- pairwisediffmeasure_concat_site[
+  !is.na(pairwisediffmeasure_concat_site$site1) &
+    !is.na(pairwisediffmeasure_concat_site$site2),
+]
+ggplot(
+  pairwisediffmeasure_concat_site_clean,
+  aes(x = Gst, y = JostD, color = comparison_group)
+) +
+  geom_jitter(alpha = 0.3, width = 0.005, height = 0.005) +
+  scale_color_viridis_d(option = "A") +
+  labs(
+    x = "G′ST / GST",
+    y = "Jost's D",
+    color = "Comparison type"
+  ) +
+  theme_classic()
+
+
+quick_summary <- function(x, probs = c(0.25, 0.5, 0.75)) {
+  q <- quantile(x, probs = probs, na.rm = TRUE)
+
+  tibble(
+    N = sum(!is.na(x)),
+    Mean = mean(x, na.rm = TRUE),
+    SD = sd(x, na.rm = TRUE),
+    Min = min(x, na.rm = TRUE),
+    Q25 = q[1],
+    Median = q[2],
+    Q75 = q[3],
+    Max = max(x, na.rm = TRUE)
+  )
+}
+
+supp_table_site <- pairwisediffmeasure_site %>% 
+  filter(popMeta1_samples > 10,
+         popMeta2_samples > 10) %>%
+  rowwise() %>% 
+  mutate(
+    pair_id = paste0(
+      sort(c(site1, site2)),
+      collapse = " vs "
+    )
+  ) %>% 
+  ungroup() %>%
+  group_by(pair_id) %>% 
+  summarise(quick_summary(JostD), .groups = "drop") %>% 
+  arrange(desc(Mean)) %>%
+  mutate(across(where(is.numeric), ~ round(.x, 3)))
+
+
+supp_table_gt_site <- supp_table_site %>%
+  gt() %>%
+  tab_header(
+    title = "JostD site comparison",
+    subtitle = "Summary statistics of pairwise Jost's D values"
+  ) %>%
+  cols_label(
+    pair_id = "Comparison",
+    N = "N",
+    Mean = "Mean",
+    SD = "SD",
+    Min = "Min",
+    Q25 = "25th percentile",
+    Median = "Median",
+    Q75 = "75th percentile",
+    Max = "Max"
+  ) %>%
+  fmt_number(
+    columns = where(is.numeric),
+    decimals = 3
+  ) %>%
+  tab_options(
+    table.font.size = px(12),
+    data_row.padding = px(4)
+  )
+
+gtsave(supp_table_gt_site, "/mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/whole_genome_scripts/jostD_analysis/supplementary_table_site.html")
+
+```
+
+```{r}
+diffmeasures_site <- read.csv(
+  "//wsl.localhost/Ubuntu-24.04/home/ahri2/Leucodepleted/whole-genome-sequence-analysis/hrp2_deltion/pop_stat/popGenetics/all_site_diffMeasures.tsv.gz",
+  sep = "\t"
+)
+
+divmeasures_site <- read.csv(
+  "//wsl.localhost/Ubuntu-24.04/home/ahri2/Leucodepleted/whole-genome-sequence-analysis/hrp2_deltion/pop_stat/popGenetics/all_site_divMeasures.tsv.gz",
+  sep = "\t"
+)
+
+pairwisediffmeasure_site <- read.csv(
+  "//wsl.localhost/Ubuntu-24.04/home/ahri2/Leucodepleted/whole-genome-sequence-analysis/hrp2_deltion/pop_stat/popGenetics/all_site_pairwiseDiffMeasures.tsv.gz",
+  sep = "\t"
+)
+```
+
+```{r}
+p2 <- ggplot(divmeasures_site, aes(x = site, y = sampleCount, fill = site)) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.7) +
+  geom_jitter(width = 0.15, alpha = 0.4, size = 1) +
+  labs(
+    x = "site",
+    y = "Sample count"
+  ) +
+  theme_classic() +
+  theme(legend.position = "none")
+
+
+#tajumaD value
+# divmeasures_taj <- divmeasures %>%
+#   #mutate(TajimaDPVal = as.numeric(TajimaDPVal)) %>%
+#   filter(TajimaDPVal <= 0.05)
+
+p1 <- ggplot(divmeasures_site, aes(x = target, y = TajimaD, colour = site)) +
+  geom_point(size = 2, alpha = 0.8) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  coord_flip() +
+  labs(
+    x = "Target locus",
+    y = "Tajima's D",
+    colour = "site"
+  ) +
+  theme_classic()
+
+
+p3 <- ggplot(divmeasures, aes(x = he, fill = hrp_deletion_call)) +
+  geom_density(alpha = 0.4) +
+  theme_classic()
+
+
+p4 <- ggplot(pairwisediffmeasure_site, aes(x = Gst, y = JostD, color = site1)) +
+  geom_jitter(alpha = 0.4, width = 0.003, height = 0.003, size = 1.5) +
+  scale_color_viridis_d(option = "D") +
+  labs(
+    x = "G′ST (GST)",
+    y = "Jost's D",
+    color = "site1"
+  ) +
+  theme_classic() +
+  geom_smooth(method = "lm", se = FALSE, linewidth = 0.7)
+
+library(cowplot)
+
+combined_plot <- plot_grid(
+  p1,
+  p2,
+  p3,
+  p4,
+  labels = "AUTO",
+  ncol = 2
+)
+
+ggsave(
+  "//wsl.localhost/Ubuntu-24.04/home/ahri2/Leucodepleted/whole-genome-sequence-analysis/hrp2_deltion/pop_stat/popGenetics/combined_diversity_plots.png",
+  combined_plot,
+  width = 12,
+  height = 10,
+  dpi = 300
+)
+```
+

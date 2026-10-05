@@ -1,0 +1,1048 @@
+---
+title: "SeekDeep method TES and WGS"
+format: html
+code-fold: false
+embed-resources: true
+---
+```{bash,eval=F}
+# used for transferring of the cram files from the nina server to ahri with using sample name 
+sed 's/$/.bqsr.bam/' sample_list.txt > cram_list.txt # helps to add the suffix .cram to the sample names 
+rsync -av --files-from=cram_files_nina_updated.txt nbillows@10.18.0.16:/mnt/storage13/nbillows/Pf_09_24/Pfalciparum_09_24_v2/cram ./
+# this is used for running the pathweaver in the bed file and used the seekdeep for the variant calilng in those region but i want to make sure that the variant calling should include the interesting variants such as px1 
+
+# this run is for the malariagen samples 
+cd /mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/pfalciparum_09_24_v2/cram/
+conda activate nf-core 
+nextflow run /mnt/storage13/ahri/hrp2_analysis/elucidatornf/pathweaver_extract_regions.nf --bams_dir ./ --pw_bed_fnp ~/hrp2_analysis/bed_file/all_drug_resistance.bed   --genome_fnp /mnt/storage13/ahri/hrp2_analysis/pf_genomes/genomes/Pf3D7.fasta --outdir /mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/genotype_extraction/targets_pathweaver/resistance_analysis/malariagen_bam_output/path_output  --bams_file_ending ".bam" --pw_extract_region_assemblies_extra_args="--qualCheck 20" -profile apptainer -resume --do_variant_calling
+
+
+# This paths contain all of the drug resistance genes incuding the px1 
+
+# path for the drug resistance reference file /mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/genotype_extraction/targets_pathweaver/reference/drug_resistance_reference.fasta
+
+# path for the drug resistance bed file ~/hrp2_analysis/bed_file/all_drug_resistance.bed
+
+# path for the resistance marker info including the start and end of the variants /mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/genotype_extraction/targets_pathweaver/input_file/resmarker_info_all.tsv
+```
+
+```{r,eval=F}
+library(tidyverse)
+library(ggplot2)
+
+
+```
+
+```{r,eval=F}
+library(dplyr, help, pos = 2, lib.loc = NULL)
+library(tidyr, help, pos = 2, lib.loc = NULL)
+drug_resistance <- read.csv("/mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/genotype_extraction/targets_pathweaver/resistance_analysis/malariagen_bam_output/path_output/PathWeaverResults/reports/populationClustering/reports/slim_allSelectedClustersInfo.tab.txt.gz",sep="\t",header=T)
+# drug_resistance <- read.csv("/mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/genotype_extraction/targets_pathweaver/crt_result/PathWeaverResults/reports/populationClustering/reports/slim_allSelectedClustersInfo.tab.txt.gz",sep="\t",header=T)
+
+
+target_rename <- drug_resistance %>%
+    rename_with(~c("SampleID","locus","allele","asv","read"),
+                c("sample","target","allele_name","seq","read_count"))
+print(length(unique(drug_resistance$sample)))
+```
+
+### Alignment of the reference sequence with generated targets names and cheking the if there is any mismatch
+```{r,eval=F}
+
+#BiocManager::install("pwalign")
+library(stringr)
+library(dplyr)
+library(foreach)
+library(parallel)
+#library(BSgenome)
+library(tidyr)
+#library(doMC)
+library(tibble)
+library(ggplot2)
+library(Biostrings)
+library(magrittr)
+
+# register number of cores to use
+#registerDoMC(4)
+
+# read the sequences from the reference genome (already extracted into a fasta file)
+clusters <- target_rename
+ref_sequences <- readDNAStringSet("/mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/genotype_extraction/targets_pathweaver/reference/drug_resistance_reference.fasta")
+
+# DADA2 should have corrected any substitution errors during sequencing. Therefore, any 
+# mismatches are expected to be real. A small penalty is added when there is a mismatching base
+# to catch large differences that are likely not real. Gap penalties are also set below to 
+# help filter sequences that are truly different from the reference. 
+sigma <- nucleotideSubstitutionMatrix(match = 2, mismatch = -1, baseOnly = TRUE)
+
+# Perform alignment by unique ASV by locus
+unique_clusters <- clusters %>%
+  distinct(locus, asv)
+
+# After loading your data, check:
+print("Unique loci in clusters:")
+print(unique(unique_clusters$locus))
+
+print("Names in reference sequences:")
+print(names(ref_sequences))
+
+# Find which loci are missing from reference
+missing_loci <- setdiff(unique(unique_clusters$locus), names(ref_sequences))
+if(length(missing_loci) > 0) {
+  print("Loci missing from reference:")
+  print(missing_loci)
+}
+
+
+
+df_aln <- foreach(ii = 1:nrow(unique_clusters), .combine = "bind_rows") %dopar% {
+  # the alignment is performed only with the reference sequence for the corresponding locus as we have this information from the demultiplexing step
+  refseq <- ref_sequences[unique_clusters$locus[ii]]
+  aln <- pairwiseAlignment(refseq, str_remove_all(unique_clusters$asv[ii], "N"), substitutionMatrix = sigma, gapOpening = -8, gapExtension = -5, scoreOnly = FALSE)
+  patt <- c(alignedPattern(aln), alignedSubject(aln))
+  ind <- sum(str_count(as.character(patt), "-"))
+  data.frame(
+    locus = unique_clusters$locus[ii],
+    asv = unique_clusters$asv[ii],
+    hapseq = as.character(patt)[2],
+    refseq = as.character(patt)[1],
+    score = score(aln),
+    indels = ind
+  )
+}
+
+# Merge the alignment results back to the original clusters data
+df_aln_merged <- clusters %>%
+  dplyr::left_join(df_aln, by = c("locus", "asv")) %>%
+  dplyr::rename(refid = locus,sample_name = SampleID) %>%
+  #dplyr::rename(refid = locus) %>%
+  dplyr::select(sample_name, asv, hapseq, refseq, refid, score, indels)
+
+write.table(df_aln_merged, file = "/mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/genotype_extraction/targets_pathweaver/resistance_analysis/malariagen_bam_output/input_files/alignments_malaria-gen.txt", quote = FALSE, sep = "\t", col.names = TRUE, row.names = FALSE)
+
+```
+
+### For making the pseudo_cigar
+```{r,eval=F}
+#!/usr/bin/env Rscript
+
+# Load required libraries
+library(stringr)
+library(dplyr)
+library(foreach)
+#library(doMC)
+library(tidyr)
+library(Biostrings)
+library(magrittr)
+
+# Source the original script to get all helper functions
+#source("build_pseudocigar.R")
+
+# Redefine the main function with all fixes
+build_pseudoCIGAR_string <- function(reference, query) {
+  # Check if lengths of reference and query are the same
+  if (nchar(reference) != nchar(query)) {
+    stop("The lengths of reference and query sequences must be the same.")
+  }
+
+  # Transform strings into vectors of characters
+  ref_chars <- str_split(reference, pattern = "")[[1]]
+  query_chars <- str_split(query, pattern = "")[[1]]
+
+  # Check for positions where both sequences have a "-"
+  dual_gaps <- ref_chars == "-" & query_chars == "-"
+  if (any(dual_gaps)) {
+    warning("Both reference and query sequences have '-' at the same position(s). This may indicate an issue with your data.")
+  }
+
+  # Prepare a dataframe with position level annotations
+  df <- tibble(
+    position = seq_along(ref_chars),
+    ref_position = cumsum(ifelse(ref_chars != "-", 1, 0)),
+    ref_char = ref_chars,
+    query_char = query_chars,
+    mask_group = compute_mask_group(ref_chars),
+    insertion_group = compute_insertion_group(ref_chars, mask_group),
+    deletion_group = compute_deletion_group(query_chars, mask_group),
+    substitution_group = compute_substitution_group(query_chars, ref_chars, ref_position, mask_group)
+  ) %>%
+    filter(!(is.na(mask_group) & is.na(insertion_group) & is.na(deletion_group) & is.na(substitution_group)))
+
+  # Filter out the masked positions for insertions and deletions
+  df <- df %>%
+    mutate(
+      insertion_group = ifelse(!is.na(mask_group), NA, insertion_group),
+      deletion_group = ifelse(!is.na(mask_group), NA, deletion_group),
+      substitution_group = ifelse(!is.na(mask_group), NA, substitution_group)
+    )
+
+  # CIGAR computation - ALL first() calls now use dplyr::first()
+  df_cigar <- df %>%
+    group_by(mask_group, insertion_group, deletion_group, substitution_group) %>%
+    reframe(
+      start_position = dplyr::first(position),
+      result = case_when(
+        !is.na(dplyr::first(mask_group)) ~ compute_mask_cigar(position, ref_position, ref_char, mask_group),
+        !is.na(dplyr::first(insertion_group)) & dplyr::first(query_char) != "-" ~ 
+          compute_insertion_cigar(position, ref_position, query_char, insertion_group),
+        !is.na(dplyr::first(deletion_group)) & dplyr::first(ref_char) != "-" ~ 
+          compute_deletion_cigar(position, ref_position, ref_char, deletion_group),
+        !is.na(dplyr::first(substitution_group)) ~ 
+          paste0(dplyr::first(ref_position), dplyr::first(query_char)),
+        TRUE ~ NA_character_
+      )
+    ) %>%
+    filter(!is.na(result) & result != "") %>%
+    arrange(start_position)
+
+  # Combine the results into a single string
+  cigar_str <- str_c(df_cigar$result, collapse = "")
+  if (str_length(cigar_str) == 0) {
+    cigar_str <- "." # if the cigar string is empty, replace with a dot
+  }
+
+  return(cigar_str)
+}
+
+compute_insertion_group <- function(ref_chars, mask_group) {
+  runs <- rle(ref_chars)
+
+  # Identify runs of "-"
+  is_insert <- runs$values == "-"
+
+  # Create group numbers for the runs of insertions
+  group_nums <- cumsum(is_insert)
+  group_nums[!is_insert] <- NA
+
+  # Expand the group numbers based on the lengths of the runs
+  result <- rep(group_nums, times = runs$lengths)
+
+  # If mask group has a value, increment the group number for subsequent insertions
+  if (!all(is.na(mask_group))) {
+    mask_positions <- which(!is.na(mask_group))
+    for (pos in mask_positions) {
+      result[pos:length(result)] <- result[pos:length(result)] + 1
+    }
+  }
+
+  return(result)
+}
+
+#' Compute Deletion Group
+#'
+#' @description Identify the group of deletion for given query characters.
+#' @param query_chars A vector of characters representing the query.
+#' @param mask_group A vector of integers representing mask groups.
+#' @return A vector of integers representing deletion groups.
+compute_deletion_group <- function(query_chars, mask_group) {
+  runs <- rle(query_chars)
+
+  # Identify runs of "-"
+  is_deletion <- runs$values == "-"
+
+  # Create group numbers for the runs of deletions
+  group_nums <- cumsum(is_deletion)
+  group_nums[!is_deletion] <- NA
+
+  # Expand the group numbers based on the lengths of the runs
+  result <- rep(group_nums, times = runs$lengths)
+
+  # If mask group has a value, increment the group number for subsequent deletions
+  if (!all(is.na(mask_group))) {
+    mask_positions <- which(!is.na(mask_group))
+    for (pos in mask_positions) {
+      result[pos:length(result)] <- result[pos:length(result)] + 1
+    }
+  }
+
+  return(result)
+}
+
+#' Compute Mask Group
+#'
+#' This function identifies positions in a reference sequence that should be treated as masked.
+#' A sequence is considered "masked" if it has consecutive 'N's possibly interspersed
+#' with '-'. For example, the sequences "N-", "N-N", "NN-", and "N--N" are all considered
+#' masked sequences. The output provides a vector of integers where each masked region is
+#' assigned a unique group identifier.
+#'
+#' @param ref_chars A vector of characters representing the reference sequence.
+#'
+#' @return A vector of integers representing mask groups. Positions not part of a mask are assigned NA.
+#'
+#' @examples
+#' compute_mask_group(c("A", "N", "N", "-", "G"))
+#' # Returns: NA 2 2 2 NA
+#'
+#' compute_mask_group(c("A", "N", "N", "-", "G", "N", "-", "N", "T"))
+#' # Returns: NA 2 2 2 NA 5 5 5 NA
+#'
+#' compute_mask_group(c("A", "G", "T"))
+#' # Returns: NA NA NA
+#'
+compute_mask_group <- function(ref_chars) {
+  # Convert the vector of characters to a single string for regex operations
+  ref_string <- paste0(ref_chars, collapse = "")
+
+  # Locate sequences based on the pattern
+  mask_regions <- str_locate_all(ref_string, pattern = "N+(-*N*)*")[[1]]
+
+  # Initialize the mask_groups vector with NAs
+  mask_groups <- rep(NA, length(ref_chars))
+
+  # For each mask start, fill in all positions up to the mask end
+  for (i in seq_along(mask_regions[, "start"])) {
+    mask_groups[mask_regions[i, "start"]:mask_regions[i, "end"]] <- mask_regions[i, "start"]
+  }
+
+  return(mask_groups)
+}
+
+#' Compute Insertion CIGAR String
+#'
+#' @description Generate the CIGAR string representation for deletions.
+#' @param position Position of deletion.
+#' @param ref_position Position in the reference sequence.
+#' @param ref_char Reference characters.
+#' @param insertion_group Group identifier for deletion.
+#' @return A string representing the CIGAR format for deletion.
+compute_insertion_cigar <- function(position, ref_position, query_char, insertion_group) {
+  # Determine the unique group value
+  unique_group <- unique(insertion_group)[!is.na(unique(insertion_group))]
+
+  # If there's no unique group value, return an NA result (this shouldn't happen, but just to be safe)
+  if (length(unique_group) == 0) {
+    return(NA_character_)
+  }
+
+  # Filter positions and characters based on the unique group value
+  group_positions <- position[insertion_group == unique_group]
+  group_ref_positions <- ref_position[insertion_group == unique_group]
+  group_chars <- query_char[insertion_group == unique_group]
+
+  # Get the starting position of the insertion relative to the reference
+  start_position_ref <- ifelse(dplyr::first(group_ref_positions) == 0, 1, dplyr::first(group_ref_positions) + 1)
+
+  # Return the pseudo CIGAR representation for the insertion
+  return(paste0(start_position_ref, "I=", paste0(group_chars, collapse = "")))
+}
+
+#' Compute Deletion CIGAR String
+#'
+#' @description Generate the CIGAR string representation for deletions.
+#' @param position Position of deletion.
+#' @param ref_position Position in the reference sequence.
+#' @param ref_char Reference characters.
+#' @param deletion_group Group identifier for deletion.
+#' @return A string representing the CIGAR format for deletion.
+compute_deletion_cigar <- function(position, ref_position, ref_char, deletion_group) {
+  # Determine the unique group value
+  unique_group <- unique(deletion_group)[!is.na(unique(deletion_group))]
+
+  # If there's no unique group value, return an NA result
+  if (length(unique_group) == 0) {
+    return(NA_character_)
+  }
+
+  # Filter positions and characters based on the unique group value
+  group_positions <- position[deletion_group == unique_group]
+  group_ref_positions <- ref_position[deletion_group == unique_group]
+  group_chars <- ref_char[deletion_group == unique_group]
+
+  # Get the starting position of the deletion relative to the reference
+  start_position_ref <- dplyr::first(group_ref_positions)
+
+  # Return the pseudo CIGAR representation for the deletion with characters
+  return(paste0(start_position_ref, "D=", paste0(group_chars, collapse = "")))
+}
+
+#' Compute Mask CIGAR String
+#'
+#' @description Generate the CIGAR string representation for mask regions.
+#' @param position Position of the mask.
+#' @param ref_position Position in the reference sequence.
+#' @param ref_chars Characters from the reference sequence.
+#' @param mask_group Group identifier for the mask region.
+#' @return A string representing the CIGAR format for masks.
+compute_mask_cigar <- function(position, ref_position, ref_chars, mask_group) {
+  # Determine the unique group value
+  unique_group <- unique(mask_group)[!is.na(unique(mask_group))]
+
+  # If there's no unique group value, return an NA result
+  if (length(unique_group) == 0) {
+    return(NA_character_)
+  }
+
+  # Filter positions and ref_positions based on the unique group value
+  group_positions <- position[mask_group == unique_group]
+  group_ref_positions <- ref_position[mask_group == unique_group]
+  group_ref_chars <- ref_chars[mask_group == unique_group]
+
+  # Get the starting position of the mask relative to the reference
+  start_position_ref <- dplyr::first(group_ref_positions)
+
+  # Calculate the length of the mask group and subtract the number of '-' in the group
+  length_of_mask <- length(group_positions) - sum(group_ref_chars == "-")
+
+  # Return the pseudo CIGAR representation for the mask
+  return(paste0(start_position_ref, "+", length_of_mask, "N"))
+}
+
+#' Compute Substitution Group
+#'
+#' @description Identify the group of substitution for given query and reference characters.
+#' @param query_chars A vector of characters representing the query.
+#' @param ref_chars A vector of characters representing the reference.
+#' @param ref_position Position in the reference sequence.
+#' @param mask_group A vector of integers representing mask groups.
+#' @return A vector of integers representing substitution groups.
+compute_substitution_group <- function(query_chars, ref_chars, ref_position, mask_group) {
+  # ifelse(ref_chars != query_chars & ref_chars != "-" & query_chars != "-", ref_position, NA)
+  if_else(!is.na(mask_group) | ref_chars == query_chars | ref_chars == "-" | query_chars == "-", NA, ref_position)
+}
+# Now run the main code from the original script
+#args <- commandArgs(trailingOnly = TRUE)
+
+# Parse arguments (same as original script)
+# library(argparse)
+# parser <- ArgumentParser(description = "Create the pseudoCIGAR string using masked or unmasked ASVs")
+# parser$add_argument("--alignments", type = "character", required = TRUE, help = "File containing aligned ASVs")
+# parser$add_argument("--output_suffix", type = "character", default = "", help = "Name of suffix for output file")
+# parser$add_argument("--ncores", type = "integer", default = 1, help = "Number of cores to use for parallel processing")
+
+# args <- parser$parse_args(args)
+# print(args)
+
+# Load in alignment data
+df.aln <- df_aln_merged
+
+# Setup parallel backend
+#doMC::registerDoMC(4)
+
+# Extract unique combinations of refseq and hapseq
+unique_combinations <- df.aln %>% distinct(refseq, hapseq)
+
+# Create the pseudoCIGAR string for each unique combination
+pseudo_cigar_unique <- foreach(ii = 1:nrow(unique_combinations), .combine = "bind_rows", .packages = c("stringr", "dplyr")) %dopar% {
+  row <- unique_combinations[ii, ]
+  tibble(
+    refseq = row$refseq,
+    hapseq = row$hapseq,
+    pseudo_cigar = build_pseudoCIGAR_string(
+      row$refseq,
+      row$hapseq
+    )
+  )
+}
+
+# Merge the pseudo_cigar strings back with the original dataset
+pseudo_cigar_table <- df.aln %>%
+  left_join(pseudo_cigar_unique, by = c("refseq", "hapseq"))
+
+# Selecting specific columns
+pseudo_cigar_table <- pseudo_cigar_table %>%
+  select(sample_name, refid, asv, pseudo_cigar)
+
+# Write out the data frame
+# filename <- paste0("/mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/genotype_extraction/targets_pathweaver/input_file/","alignments.pseudocigar", "wgs_drug_resisitance", ".txt")
+# write.table(pseudo_cigar_table, file = filename, quote = FALSE, sep = "\t", col.names = TRUE, row.names = FALSE)
+original_data <- target_rename %>%
+  select(SampleID, locus, asv, read) %>%
+  dplyr::rename(sample_name = SampleID)%>%
+  distinct()
+
+# Now merge with pseudoCIGAR data and format correctly
+allele_data_final <- pseudo_cigar_table %>%
+  left_join(original_data, by = c("sample_name", "refid" = "locus", "asv")) %>%
+  dplyr::rename(
+  #  sample_name = SampleID,
+    target_name = refid,
+    PseudoCIGAR = pseudo_cigar,
+    reads = read
+  ) %>%
+  select(sample_name, target_name, asv, PseudoCIGAR, reads) %>%
+  mutate(PseudoCIGAR = ifelse(is.na(PseudoCIGAR), ".", PseudoCIGAR))
+# Write the properly formatted file
+write.table(allele_data_final, 
+            file = "/mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/genotype_extraction/targets_pathweaver/resistance_analysis/malariagen_bam_output/input_files/allele_data_proper_malaria-gen.txt",
+            quote = FALSE, sep = "\t", row.names = FALSE)
+
+# Check the result
+print(head(allele_data_final))
+print(length(unique(allele_data_final$sample_name)))
+
+```
+
+### This is the major python script since it helps to generate an outupt after all of the input generated
+```{bash,eval=F}
+conda activate fastq2matrix
+python /mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/genotype_extraction/targets_pathweaver/resistance_analysis/all_pipeline.py --allele_data_path /mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/genotype_extraction/targets_pathweaver/resistance_analysis/malariagen_bam_output/input_files/allele_data_proper_malaria-gen.txt --aligned_asv_table_path /mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/genotype_extraction/targets_pathweaver/resistance_analysis/malariagen_bam_output/input_files/alignments_malaria-gen.txt --res_markers_info_path /mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/genotype_extraction/targets_pathweaver/input_file/resmarker_info_all.tsv --output_dir /mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/genotype_extraction/targets_pathweaver/resistance_analysis/malariagen_bam_output/malaria-gen_output --refseq_path /mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/genotype_extraction/targets_pathweaver/reference/drug_resistance_reference.fasta
+
+
+```
+
+```{r,eval=F}
+library(tidyverse)
+library(readr)
+suppleme_fws <- read.csv(
+  "/mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/supplementary_Data/supp_fws_up.tsv",
+  sep = "\t"
+) %>%
+  select(sample_id, Country, fws)%>%
+  mutate(Sample = gsub("_S[0-9]+$", "", sample_id))  %>% 
+  mutate(Sample = gsub("-D0", "_D0", Sample)) %>% 
+  mutate(Sample = gsub("NG-A4488_", "", Sample)) %>% 
+  mutate(Sample = gsub("_libLAN[0-9]+", "", Sample))%>%
+  select(Sample,Country,fws)
+
+
+resmarker_microhaplotype <- read.csv("/mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/genotype_extraction/targets_pathweaver/resistance_analysis/malariagen_bam_output/malaria-gen_output/resmarker_microhaplotype_table.txt", sep = "\t", header = TRUE)
+
+unique_samples <- resmarker_microhaplotype %>%
+  mutate(Sample = gsub("_S[0-9]+$", "", sample_name))  %>% 
+  mutate(Sample = gsub("-D0", "_D0", Sample)) %>% 
+  mutate(Sample = gsub("NG-A4488_", "", Sample)) %>% 
+  mutate(Sample = gsub("_libLAN[0-9]+", "", Sample))%>%
+  right_join(suppleme_fws, by = "Sample")
+
+res_table <- read.csv("/mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/genotype_extraction/targets_pathweaver/resistance_analysis/malariagen_bam_output/malaria-gen_output/resmarker_table_by_locus.txt",sep="\t")%>%
+  mutate(Sample = gsub("_S[0-9]+$", "", sample_name))  %>% 
+  mutate(Sample = gsub("-D0", "_D0", Sample)) %>% 
+  mutate(Sample = gsub("NG-A4488_", "", Sample)) %>% 
+  mutate(Sample = gsub("_libLAN[0-9]+", "", Sample))%>%
+  right_join(suppleme_fws, by = "Sample")
+
+pop_allele_freq <- res_table %>%
+  group_by(Country, gene,aa_position,ref_aa) %>%
+  mutate(total = n())%>%
+  group_by(Country, gene,aa_position,ref_aa,aa,total) %>%
+  summarise(sum_allele = n()) %>%
+  mutate(allele_freq = sum(sum_allele)/sum(total)) 
+test <- read.csv("/mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/genotype_extraction/seekdeep_output/test/reports/summary/AAChangesInfo.tsv.gz",sep = "\t")
+seekdeep_output <- read.csv("/mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/genotype_extraction/targets_pathweaver/resistance_analysis/malariagen_bam_output/path_output/PathWeaverResults/variantCalls/reports/summary/AAChangesInfo.tsv.gz", sep = "\t")%>%
+  mutate(Sample = gsub("_S[0-9]+$", "", sample))  %>% 
+  mutate(Sample = gsub("-D0", "_D0", Sample)) %>% 
+  mutate(Sample = gsub("NG-A4488_", "", Sample)) %>% 
+  mutate(Sample = gsub("_libLAN[0-9]+", "", Sample))%>%
+  right_join(suppleme_fws, by = "Sample")
+readr::write_tsv(seekdeep_output , "/mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/genotype_extraction/seekdeep_output/seekdeep_output.tsv")
+
+
+allel_seekdeep_output <- seekdeep_output %>%
+  filter(AA_cnt != 0) %>%
+  group_by(Country, Gene, reference_AA_pos, reference_AA) %>%
+  mutate(total = n()) %>%
+  group_by(Country, Gene, reference_AA_pos, reference_AA, AA, total) %>%
+  summarise(sum_allele = n(), .groups = "drop") %>%
+  mutate(
+    allele_freq = sum_allele / total,
+    aa_change = paste0(reference_AA_pos, reference_AA, ">", reference_AA_pos, AA),
+    allele_sample_size = paste0(round(allele_freq, 3), " (", sum_allele, "/", total, ")")
+  )%>%
+    mutate(mutation_status = ifelse(reference_AA == AA, "wildtype", "mutant"))%>%
+    filter(mutation_status == "mutant")
+  readr::write_tsv(allel_seekdeep_output , "/mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/genotype_extraction/seekdeep_output/allel_freq_seekdeep_output.tsv")
+
+wide_output <- allel_seekdeep_output %>%
+  select(Gene, reference_AA_pos, reference_AA, AA, aa_change,
+         Country, allele_sample_size) %>%
+  pivot_wider(
+    names_from = Country,
+    values_from = allele_sample_size
+  )
+readr::write_tsv(wide_output , "/mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/genotype_extraction/seekdeep_output/wide_allel_freq_seekdeep_output.tsv")
+
+# used for checking the output from the deepseek and the output from the madhatter method are similar or not 
+similarity_check <- pop_allele_freq%>%
+  #filter(gene %in% c("k13","crt","dhfr","dhps","px1"))%>%
+  left_join(allel_seekdeep_output, by = c("aa_position" = "reference_AA_pos", "ref_aa" = "reference_AA","Country" = "Country","aa" = "AA"), suffix = c("_mad4h", "_seekdeep")) %>%
+  mutate(check = ifelse(allele_freq_mad4h==allele_freq_seekdeep, "match", "mismatch"))%>%
+  mutate(difference = abs(allele_freq_mad4h - allele_freq_seekdeep))%>%
+  filter(check == "mismatch")
+  
+
+
+```
+
+Preparing bed files for the pathweaver  (one thing i need to consider here is that i need to make sure there is no any strand biase between this bed file and the gff file)
+```{r,eval=F}
+# to make bed file for the pathweaver extraction and to run the seekdeep for the variant calling in those region 
+
+library(dplyr)
+library(tidyr)
+library(purrr)
+
+# I need to update the strand for each gene and also add additional targets 
+regions <- data.frame(
+  name = c("AP2MU", "AAT1", "coronin", "ferredoxin", "k13","crt","mdr1","dhfr","dhps","MCA2","KIC7","KIC5","KIC8","PX1"),
+  coord = c("Pf3D7_12_v3:716700-720700", "Pf3D7_06_v3:1213100-1217350","Pf3D7_12_v3:2091731-2094720","Pf3D7_13_v3:748160-749415","Pf3D7_13_v3:1724817-1728000","Pf3D7_07_v3:403000-406000","Pf3D7_05_v3:957500-962000","Pf3D7_04_v3:746000-751000","Pf3D7_08_v3:548000-552000","Pf3D7_14_v3:1548072-1557053","Pf3D7_08_v3:643066-645158","Pf3D7_11_v3:1525654-1532527","Pf3D7_10_v3:600950-608809","Pf3D7_07_v3:889883-899213"),
+  strand = c("+","-","+","-","-","+","+","+","+","+","-","-","-","+")
+)
+
+bed_windows <- regions %>%
+  separate(coord, into = c("chr", "pos"), sep = ":") %>%
+  separate(pos, into = c("region_start", "region_end"), sep = "-") %>%
+  mutate(
+    region_start = as.numeric(region_start),
+    region_end = as.numeric(region_end)
+  ) %>%
+  rowwise() %>%
+  mutate(
+    windows = list(
+      data.frame(
+        start = seq(region_start, region_end, by = 200),
+        end = pmin(seq(region_start, region_end, by = 200) + 199, region_end)
+      )
+    )
+  ) %>%
+  unnest(windows) %>%
+  ungroup() %>%
+  mutate(start = start - 1) %>%   # BED format
+  select(chr, start, end, name,strand)%>%
+  mutate(chr_pos = paste0(chr, "-",start, "-", end))%>%
+  mutate(length = end - start)%>%
+ mutate(length = as.integer(length))%>%
+  filter(length > 50)%>%
+  select(chr,start,end,chr_pos,length,strand)
+write.table(
+  bed_windows %>% select(chr, start, end,chr_pos, length, strand),
+  "/mnt/storage13/ahri/hrp2_analysis/bed_file/aat1_ap2mu_co_fer_additional.bed",
+  sep = "\t", quote = FALSE, row.names = FALSE, col.names = FALSE
+)
+
+# write.table(
+#   bed_windows %>% select(chr, start, end,chr_pos, length, strand),
+#   "/mnt/storage13/ahri/hrp2_analysis/bed_file/aat1_ap2mu_co_fer_additional.bed",
+#   sep = "\t", quote = FALSE, row.names = FALSE, col.names = FALSE
+# )
+
+write.table(
+  bed_windows %>% select(chr, start, end,chr_pos, length, strand),
+  "/mnt/storage13/ahri/hrp2_analysis/bed_file/aat1_ap2mu_co_fer_px1_additional.bed",
+  sep = "\t", quote = FALSE, row.names = FALSE, col.names = FALSE
+)
+```
+
+Genotype Extraction for the drug resisitance genes using the Seekdeep output from the pathweaver 
+```{bash,eval=F}
+# for merging the bed file for the drug resistance genes and the bed file with the new targets 
+cat /mnt/storage13/ahri/hrp2_analysis/bed_file/aat1_ap2mu_co_fer.bed ~/hrp2_analysis/bed_file/all_drug_resistance.bed > ~/hrp2_analysis/bed_file/aat1_ap2mu_co_fer_all_drug_res.bed
+# after preparing the bed file i will try to run the pathweaver for the bed files and see the seekdeep output for the variants in those regions
+conda activate nf-core
+cd /mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/pfalciparum_09_24_v2/cram/
+
+# I put the output file in the genonotype_extraction folder  
+nextflow run /mnt/storage13/ahri/hrp2_analysis/elucidatornf/pathweaver_extract_regions.nf --bams_dir ./ --pw_bed_fnp ~/hrp2_analysis/bed_file/aat1_ap2mu_co_fer_all_drug_res.bed   --genome_fnp /mnt/storage13/ahri/hrp2_analysis/pf_genomes/genomes/Pf3D7.fasta --outdir /mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/genotype_extraction/seekdeep_output/pathweaveroutput_aat1_ap2mu --bams_file_ending ".bam" --pw_extract_region_assemblies_extra_args="--qualCheck 20" -profile apptainer -resume --do_variant_calling
+
+# for extracting drug resistance gene variants for the TES samples 
+cd /mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/pfalciparum_09_24_v2/Tes_all_samples
+
+nextflow run /mnt/storage13/ahri/hrp2_analysis/elucidatornf/pathweaver_extract_regions.nf --bams_dir ./ --pw_bed_fnp ~/hrp2_analysis/bed_file/aat1_ap2mu_co_fer_all_drug_res.bed   --genome_fnp /mnt/storage13/ahri/hrp2_analysis/pf_genomes/genomes/Pf3D7.fasta --outdir /mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/genotype_extraction/seekdeep_output/pathweaver_Tes_samples --bams_file_ending ".bam" --pw_extract_region_assemblies_extra_args="--qualCheck 20" -profile apptainer -resume --do_variant_calling
+# running the genotype extraction using from the TES study with including the full PX1 target
+conda activate nf-core
+cd /mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/pfalciparum_09_24_v2/Tes_all_samples
+
+mkdir -p /mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/genotype_extraction/seekdeep_output/pathweaver_Tes_samples_px1_additional
+nextflow run /mnt/storage13/ahri/hrp2_analysis/elucidatornf/pathweaver_extract_regions.nf --bams_dir ./ --pw_bed_fnp /mnt/storage13/ahri/hrp2_analysis/bed_file/aat1_ap2mu_co_fer_px1_additional.bed   --genome_fnp /mnt/storage13/ahri/hrp2_analysis/pf_genomes/genomes/Pf3D7.fasta --outdir /mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/genotype_extraction/seekdeep_output/pathweaver_Tes_samples_px1_additional --bams_file_ending ".bam" --pw_extract_region_assemblies_extra_args="--qualCheck 20" -profile apptainer -resume --do_variant_calling
+
+# including mca2, kic7, kic5, kic8 and full px1 target this targets for the whole genome variant extraction and use this path for the bed file /mnt/storage13/ahri/hrp2_analysis/bed_file/aat1_ap2mu_co_fer_additional.bed
+mkdir -p /mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/genotype_extraction/seekdeep_output/pathweaveroutput_aat1_ap2mu_mca_kic
+conda activate nf-core
+cd /mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/pfalciparum_09_24_v2/cram/
+nextflow run /mnt/storage13/ahri/hrp2_analysis/elucidatornf/pathweaver_extract_regions.nf --bams_dir ./ --pw_bed_fnp /mnt/storage13/ahri/hrp2_analysis/bed_file/aat1_ap2mu_co_fer_px1_additional.bed   --genome_fnp /mnt/storage13/ahri/hrp2_analysis/pf_genomes/genomes/Pf3D7.fasta --outdir /mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/genotype_extraction/seekdeep_output/pathweaveroutput_aat1_ap2mu_mca_kic --bams_file_ending ".bam" --pw_extract_region_assemblies_extra_args="--qualCheck 20" -profile apptainer -resume --do_variant_calling
+```
+
+Output analysis after running the pathweaver 
+```{r,eval=F}
+
+library(dplyr)
+library(tidyr)
+library(purrr)
+
+suppleme_fws <- read.csv(
+  "/mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/supplementary_Data/supp_fws_up.tsv",
+  sep = "\t"
+) %>%
+  select(sample_id, Country, fws)%>%
+  mutate(Sample = gsub("_S[0-9]+$", "", sample_id))  %>% 
+  mutate(Sample = gsub("-D0", "_D0", Sample)) %>% 
+  mutate(Sample = gsub("NG-A4488_", "", Sample)) %>% 
+  mutate(Sample = gsub("_libLAN[0-9]+", "", Sample))%>%
+  select(Sample,Country,fws)
+seekdeep_output <- read.csv("/mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/genotype_extraction/seekdeep_output/pathweaveroutput_aat1_ap2mu/PathWeaverResults/variantCalls/reports/summary/AAChangesInfo.tsv.gz", sep = "\t")%>%
+  mutate(Sample = gsub("_S[0-9]+$", "", sample))  %>% 
+  mutate(Sample = gsub("-D0", "_D0", Sample)) %>% 
+  mutate(Sample = gsub("NG-A4488_", "", Sample)) %>% 
+  mutate(Sample = gsub("_libLAN[0-9]+", "", Sample))%>%
+  mutate(Gene = recode(Gene , "PF3D7_1251200"="Coronin"))%>%
+  #filter(Gene %in% c("Coronin","PX1","AAT1","AP2-MU","UBP1","Kelch13","CRT","PPPK-DHPS","DHFR-TS","MDR1"))%>%
+  filter(AA_cnt != 0) %>%
+  select(Sample, Gene,Gene_ID, reference_AA_pos, reference_AA, AA,is_reference,AA_freq,AA_cnt) %>%
+ # dplyr::rename(Read = AA_cnt)
+  right_join(suppleme_fws, by = "Sample")
+
+seekdeep_output_additional <- read.csv("/mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/genotype_extraction/seekdeep_output/pathweaveroutput_aat1_ap2mu_mca_kic/PathWeaverResults/variantCalls/reports/summary/AAChangesInfo.tsv.gz", sep = "\t")%>%
+  mutate(Sample = gsub("_S[0-9]+$", "", sample))  %>% 
+  mutate(Sample = gsub("-D0", "_D0", Sample)) %>% 
+  mutate(Sample = gsub("NG-A4488_", "", Sample)) %>% 
+  mutate(Sample = gsub("_libLAN[0-9]+", "", Sample))%>%
+  mutate(Gene = recode(Gene , "PF3D7_1251200"="Coronin"))%>%
+  #filter(Gene %in% c("Coronin","PX1","AAT1","AP2-MU","UBP1","Kelch13","CRT","PPPK-DHPS","DHFR-TS","MDR1"))%>%
+  filter(AA_cnt != 0) %>%
+  select(Sample, Gene,Gene_ID, reference_AA_pos, reference_AA, AA,is_reference,AA_freq,AA_cnt) %>%
+ # dplyr::rename(Read = AA_cnt)
+  right_join(suppleme_fws, by = "Sample")
+
+wide_sample <- seekdeep_output_additional %>%
+  mutate(
+    mutation_status = ifelse(reference_AA == AA, "wildtype", "mutant"),
+    mutation_test = ifelse(
+      reference_AA == AA,
+      paste0("0", "(", AA_freq, ")"),
+      paste0(reference_AA, reference_AA_pos, AA, "(", AA_freq, ")")
+    )
+  ) %>%
+  select(Sample, Gene, reference_AA_pos, mutation_test,Country) %>%
+  group_by(Gene, reference_AA_pos, Sample) %>%
+  summarise(mutation_test = paste(unique(mutation_test), collapse = ";"),
+            .groups = "drop") %>%
+  pivot_wider(
+    names_from = Sample,
+    values_from = mutation_test,
+    values_fill = "NA"
+  )
+readr::write_tsv(wide_sample , "/mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/genotype_extraction/seekdeep_output/pathweaveroutput_aat1_ap2mu_mca_kic/wide_sample_seekdeep_output_all_additional_variant.tsv")
+
+# doing the allelic frequency for the varians per country summary
+
+library(dplyr)
+library(tidyr)
+
+# Total number of samples per country
+country_n <- seekdeep_output_additional %>%
+  group_by(Country) %>%
+  summarise(
+    total_samples = n_distinct(Sample),
+    .groups = "drop"
+  )
+
+# Variant frequencies
+allelic_freq <- seekdeep_output_additional %>%
+  mutate(
+    aa_change = paste0(reference_AA, ">", AA)
+  ) %>%
+  group_by(
+    Country,
+    Gene,
+    reference_AA_pos,
+    aa_change,
+    is_reference
+  ) %>%
+  summarise(
+    n_samples = n_distinct(Sample),
+    .groups = "drop"
+  ) %>%
+  left_join(country_n, by = "Country") %>%
+  filter(is_reference == FALSE) %>%
+  mutate(
+    freq = n_samples / total_samples,
+    freq_label = paste0(
+      round(freq, 3),
+      " (",
+      n_samples,
+      "/",
+      total_samples,
+      ")"
+    )
+  ) %>%
+  select(
+    Gene,
+    reference_AA_pos,
+    aa_change,
+    Country,
+    freq_label
+  ) %>%
+  pivot_wider(
+    names_from = Country,
+    values_from = freq_label,
+    values_fill = "0 (0/0)"
+  ) %>%
+  arrange(Gene, reference_AA_pos)
+
+readr::write_tsv(allelic_freq , "/mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/genotype_extraction/seekdeep_output/pathweaveroutput_aat1_ap2mu_mca_kic/wide_sample_seekdeep_output_all_additional_variant_allel_freq.tsv")
+# print(length(unique(seekdeep_output$Sample)))
+# # there are some issue related with samples which  have two allele on one target so i just count the distnict sample for each allele and then calculate the frequency based on that
+# library(readxl)
+# supplementary_data <- read_xlsx("/mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/supplementary_Data/Supplementary_Data.xlsx" , sheet = 2 , skip=2 , col_names = TRUE) %>%
+#   select(gene,pos,aa_change)
+
+# allel_seekdeep_output <- seekdeep_output %>%
+#   filter(AA_cnt != 0) %>%
+#   group_by(Gene_ID,Country, Gene, reference_AA_pos, reference_AA) %>%
+#   mutate(total = n_distinct(sample)) %>%
+#   group_by(Gene_ID,Country, Gene, reference_AA_pos, reference_AA, AA) %>%
+#   summarise(
+#     sum_allele = n_distinct(sample), 
+#     total = first(total),
+#     .groups = "drop"
+#   ) %>%
+#   mutate(
+#     allele_freq = sum_allele / total,
+#     aa_change = paste0(reference_AA_pos, reference_AA, ">", reference_AA_pos, AA),
+#     allele_sample_size = paste0(round(allele_freq, 3), " (", sum_allele, "/", total, ")"),
+#     mutation_status = ifelse(reference_AA == AA, "wildtype", "mutant")
+#   ) %>%
+#   filter(mutation_status == "mutant")%>%
+#   left_join(supplementary_data, by = "aa_change") 
+
+# wide_output <- allel_seekdeep_output %>%
+#   select(Gene_ID,Gene, reference_AA_pos, reference_AA, AA, aa_change,
+#          Country, allele_sample_size) %>%
+#   pivot_wider(
+#     names_from = Country,
+#     values_from = allele_sample_size,
+#     values_fill = "0"
+#   )%>%
+#     filter(!Gene %in% c("PF3D7_1322700","PF3D7_1149600")) %>%
+#     mutate(Gene = recode(Gene , "PF3D7_1251200"="Coronin"))
+# readr::write_tsv(wide_output , "/mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/genotype_extraction/seekdeep_output/wide_allel_freq_seekdeep_output_all.tsv")
+
+wide_sample <- seekdeep_output %>%
+  mutate(
+    mutation_status = ifelse(reference_AA == AA, "wildtype", "mutant"),
+    mutation_test = ifelse(
+      reference_AA == AA,
+      paste0("0", "(", AA_freq, ")"),
+      paste0(reference_AA, reference_AA_pos, AA, "(", AA_freq, ")")
+    )
+  ) %>%
+  select(Sample, Gene, reference_AA_pos, mutation_test) %>%
+  group_by(Gene, reference_AA_pos, Sample) %>%
+  summarise(mutation_test = paste(unique(mutation_test), collapse = ";"),
+            .groups = "drop") %>%
+  pivot_wider(
+    names_from = Sample,
+    values_from = mutation_test,
+    values_fill = "NA"
+  )
+readr::write_tsv(wide_sample , "/mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/genotype_extraction/seekdeep_output/pathweaveroutput_aat1_ap2mu/wide_sample_seekdeep_output_all.tsv")
+
+
+px1_k13_all <- seekdeep_output %>%
+  filter(Gene %in% c("PX1","Kelch13"),reference_AA_pos %in% c("1222", "1701", "1705","622"),Country == "Ethiopia")%>%
+  filter(!(grepl("ERR",Sample)),!(grepl("SRR",Sample)))
+
+#print(length(unique(wide_sample_tes$Sample)))
+
+haplotypes_px1_all <- px1_k13_all %>%
+  filter(reference_AA_pos %in% c("1222", "1701", "1705")) %>%
+  group_by(Sample, Gene) %>%
+  summarise(
+    haplotype = paste(
+      AA[match(c("1222", "1701", "1705"), reference_AA_pos)],
+      collapse = "/"
+    ),
+    .groups = "drop"
+  )
+haplotype_k13_all <- px1_k13_all %>%
+  filter(reference_AA_pos == "622") %>%
+  group_by(Sample, Gene) %>%
+  summarise(
+    haplotype = paste(
+      AA[match("622", reference_AA_pos)],
+      collapse = "/"
+    ),
+    .groups = "drop"
+  )
+
+join_px1_k13_all <- haplotypes_px1_all %>%
+  left_join(haplotype_k13_all, by = "Sample", suffix = c("_px1", "_k13")) %>%
+  mutate(
+    association = ifelse(
+      !is.na(haplotype_px1) & !is.na(haplotype_k13),
+      paste0("PX1:", haplotype_px1, " - K13:", haplotype_k13),
+      "NA"
+    )
+  ) %>%
+  select(Sample, association)%>%
+    mutate(site = case_when(
+    grepl("GMHC",Sample) ~ "Gondar",
+    grepl("GM",Sample) ~ "Gondar",
+    grepl("MM",Sample) ~ "Mizan",
+    grepl("MHC",Sample) ~ "Mizan",
+    grepl("AC",Sample) ~ "Gambella",
+    grepl("ACH",Sample) ~ "Gambella",
+    grepl("ALH",Sample) ~ "Arbaminch",
+    grepl("MFH",Sample) ~"Metehara"
+  )) %>%
+  group_by(site, association) %>%
+  summarise(count = n(), .groups = "drop")
+
+join_px1_k13_all %>%
+  group_by(site) %>%
+  summarise(n_samples = n(), .groups = "drop")
+readr::write_tsv(join_px1_k13_all , "/mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/genotype_extraction/seekdeep_output/pathweaveroutput_aat1_ap2mu/join_px1_k13_all_samples.tsv")
+
+
+  # analysis for the TES samples 
+
+  metadata_tes <- read.csv("/mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/pfalciparum_09_24_v2/Tes_all_samples/metadata.tsv",sep="\t")%>%
+  mutate(Sample = gsub("_S[0-9]+$", "", sample))  %>% 
+  mutate(Sample = gsub("-D0", "_D0", Sample)) %>% 
+  mutate(Sample = gsub("NG-A4488_", "", Sample)) %>% 
+  mutate(Sample = gsub("_libLAN[0-9]+", "", Sample))%>%
+  mutate(Sample = gsub("-", "_", Sample))%>%
+  select(-sample)
+  seekdeep_output_tes <- read.csv("/mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/genotype_extraction/seekdeep_output/pathweaver_Tes_samples/PathWeaverResults/variantCalls/reports/summary/AAChangesInfo.tsv.gz", sep = "\t")%>%
+  mutate(Sample = gsub("_S[0-9]+$", "", sample))  %>% 
+  mutate(Sample = gsub("-D0", "_D0", Sample)) %>% 
+  mutate(Sample = gsub("NG-A4488_", "", Sample)) %>% 
+  mutate(Sample = gsub("_libLAN[0-9]+", "", Sample))%>%
+  mutate(Sample = gsub("-", "_", Sample))%>%
+  #right_join(metadata_tes, by = "Sample")%>%
+  mutate(Gene = recode(Gene , "PF3D7_1251200"="Coronin"))%>%
+  filter(Gene %in% c("Coronin","PX1","AAT1","AP2-MU","UBP1","Kelch13","CRT","PPPK-DHPS","DHFR-TS","MDR1"))%>%
+  filter(AA_cnt != 0) %>%
+  select(Sample, Gene,Gene_ID, reference_AA_pos, reference_AA, AA,is_reference,AA_freq,AA_cnt) %>%
+  dplyr::rename(Read = AA_cnt)
+print(colnames(seekdeep_output_tes))
+readr::write_tsv(seekdeep_output_tes , "/mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/genotype_extraction/seekdeep_output/pathweaver_Tes_samples/filtered_region_interest_px1.tsv")
+
+# This is used to make the wide format for the TES samples with the frequency of the allele in each sample
+
+wide_sample_tes <- seekdeep_output_tes %>%
+  mutate(
+    mutation_status = ifelse(reference_AA == AA, "wildtype", "mutant"),
+    mutation_test = ifelse(
+      reference_AA == AA,
+      paste0("0", "(", AA_freq, ")"),
+      paste0(reference_AA, reference_AA_pos, AA, "(", AA_freq, ")")
+    )
+  ) %>%
+  select(Sample, Gene, reference_AA_pos, mutation_test) %>%
+  group_by(Gene, reference_AA_pos, Sample) %>%
+  summarise(mutation_test = paste(unique(mutation_test), collapse = ";"),
+            .groups = "drop") %>%
+  pivot_wider(
+    names_from = Sample,
+    values_from = mutation_test,
+    values_fill = "NA"
+  )
+AC091_comparision <- wide_sample_tes %>%
+  select(Gene, reference_AA_pos, AC091_D21, AC091_TF) %>%
+  mutate(compare = ifelse(!is.na(AC091_TF) & !is.na(AC091_D21), ifelse(AC091_D21 == AC091_TF, "match", "mismatch"), "NA")) %>%
+  filter(compare == "mismatch")
+readr::write_tsv(wide_sample_tes , "/mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/genotype_extraction/seekdeep_output/pathweaver_Tes_samples/wide_sample_filtered_region_interest_px1_AA_freq.tsv")
+
+# association of px1 varaints and k13 622 for the TES samples 
+
+px1_k13 <- seekdeep_output_tes %>%
+  filter(Gene %in% c("PX1","Kelch13"),reference_AA_pos %in% c("1222", "1701", "1705","622"))
+
+#print(length(unique(wide_sample_tes$Sample)))
+
+haplotypes_px1 <- px1_k13 %>%
+  filter(reference_AA_pos %in% c("1222", "1701", "1705")) %>%
+  group_by(Sample, Gene) %>%
+  summarise(
+    haplotype = paste(
+      AA[match(c("1222", "1701", "1705"), reference_AA_pos)],
+      collapse = "/"
+    ),
+    .groups = "drop"
+  )%>%
+    right_join(metadata_tes , by="Sample")
+haplotype_k13 <- px1_k13 %>%
+  filter(reference_AA_pos == "622") %>%
+  group_by(Sample, Gene) %>%
+  summarise(
+    haplotype = paste(
+      AA[match("622", reference_AA_pos)],
+      collapse = "/"
+    ),
+    .groups = "drop"
+  )
+
+join_px1_k13 <- haplotypes_px1 %>%
+  left_join(haplotype_k13, by = "Sample", suffix = c("_px1", "_k13")) %>%
+  mutate(
+    association = ifelse(
+      !is.na(haplotype_px1) & !is.na(haplotype_k13),
+      paste0("PX1:", haplotype_px1, " - K13:", haplotype_k13),
+      "NA"
+    )
+  ) %>%
+  select(Sample, association)%>%
+    mutate(site = case_when(
+    grepl("MM",Sample) ~ "Mizan",
+    grepl("GM",Sample) ~ "Gondar",
+    grepl("AC",Sample) ~ "Gambella"
+  )) %>%
+  group_by(site, association) %>%
+  summarise(count = n(), .groups = "drop")
+
+readr::write_tsv(join_px1_k13 , "/mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/genotype_extraction/seekdeep_output/pathweaver_Tes_samples/join_px1_k13_TES.tsv")
+
+
+
+
+allel_seekdeep_output_tes <- seekdeep_output_tes %>%
+  filter(AA_cnt != 0) %>%
+  group_by(Gene_ID, Gene, reference_AA_pos, reference_AA,Treatment) %>%
+  mutate(total = n_distinct(Sample)) %>%
+  group_by(Gene_ID, Gene, reference_AA_pos, reference_AA, AA,Treatment) %>%
+  summarise(
+    sum_allele = n_distinct(Sample), 
+    total = first(total),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    allele_freq = sum_allele / total,
+    aa_change = paste0(reference_AA_pos, reference_AA, ">", reference_AA_pos, AA),
+    allele_sample_size = paste0(round(allele_freq, 3), " (", sum_allele, "/", total, ")"),
+    mutation_status = ifelse(reference_AA == AA, "wildtype", "mutant")
+  ) %>%
+  filter(mutation_status == "mutant")
+
+wide_output_tes <- allel_seekdeep_output_tes %>%
+  select(Gene_ID,Gene, reference_AA_pos, reference_AA, AA, aa_change,Treatment,
+          allele_sample_size) %>%
+  pivot_wider(
+    names_from = Treatment,
+    values_from = allele_sample_size,
+    values_fill = "0"
+  )%>%
+    filter(!Gene %in% c("PF3D7_1322700","PF3D7_1149600")) %>%
+    mutate(Gene = recode(Gene , "PF3D7_1251200"="Coronin"))
+
+
+
+```
+
+```{bash,eval=F}
+# i just tried this command for extracting the amino acid changes with having position but seems not working
+# cd /mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/ethiopia_vcf/
+# SnpSift extractFields /mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/ethiopia_vcf/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen.filt.csq.bi.GT.miss0.2.vqslod.filt.snps_ethiopia.ann.vcf \
+#   CHROM POS REF ALT \
+#   "ANN[*].GENE" \
+#   "ANN[*].GENEID" \
+#   "ANN[*].FEATUREID" \
+#   "ANN[*].HGVS_P" \
+#   "ANN[*].AA_POS" \
+#   "ANN[*].EFFECT" > extracted_variants.txt
+
+# I have seen some discripancy in the output from the variant i extracted from the vcf file and the output from the pathweaver so to check the existance of those variants i plan to extract the px1 region from the bam file and see it in the IGV 
+
+nano ~/hrp2_analysis/bed_file/all_drug_resistance.bed
+# major px1 region  
+samtools view -b /mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/pfalciparum_09_24_v2/Tes_all_samples/GM002_D0.bqsr.bam \
+Pf3D7_07_v3:895770-897424 \
+> /mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/genotype_extraction/checking_px1_variant/GM002_D0_px1_region.bam
+
+samtools index /mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/genotype_extraction/checking_px1_variant/GM002_D0_px1_region.bam
+```
+```{bash,eval=F}
+# for doing the allelic frequency from the vcf file using Ashely's script 
+# the previous analysis was done using the minimum depth of 5 , and the metadata was used from the fws directory which seems some samples difference
+conda activate fastq2matrix
+python /mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/genotype_extraction/genotype_prevalence_aa.py --vcf /mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen.filt.csq.bi.GT.miss0.2.vqslod.filt.snps.vcf.gz --ref /mnt/storage13/ahri/plasmodium_falciparum/Pfalciparum.genome.fasta --gff /mnt/storage13/ahri/plasmodium_falciparum/Pfalciparum.genome.modified.new.gff3 --metadata /mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/supplementary_Data/supp_fws_up.tsv --outdir /mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/genotype_extraction/country_allelic_freq/  --group_by Country --min_dp 10 --write_combined 
+```

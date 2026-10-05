@@ -1,0 +1,1369 @@
+---
+title: "chr11_haplotype_structure"
+author: "Metmiku"
+date: "2026-05-12"
+output: html_document
+---
+
+## Setup and shared functions
+
+This chunk loads the shared project functions used across the report. These helper functions keep repeated report tasks, such as generating download links and using common formatting choices, consistent across all chromosome 11 haplotype plots.
+
+```{r setup, echo=FALSE}
+source("common.R")
+```
+
+
+## Analysis plotting environment
+
+This chunk prepares the analysis environment for the chromosome 11 haplotype structure workflow. The loaded tools support tidy sample filtering, haplotype rainbow plotting, heatmap-style visualization, and reproducible color palettes used later for site, HRP deletion status, cluster, FWS, and gene-region annotations.
+
+```{r}
+library(tidyverse)
+library(ComplexHeatmap)
+library(metan)
+library(HaplotypeRainbows)
+library(RColorBrewer)
+
+
+```
+
+## HRP3-deleted monoclonal chromosome 11 haplotype structure
+
+This chunk builds the first chromosome 11 haplotype rainbow plot for samples that are both monoclonal and HRP3-deleted. Monoclonal infections are selected using an FWS threshold of `fws >= 0.95`, HRP3-deleted samples are selected from deletion calls containing `/hrp3-`, and chromosome 11 subregions are restricted to positions at or after `start >= 1954279`. Samples are clustered from haplotype presence/absence profiles using Ward's hierarchical clustering (`ward.D2`), then ordered by HRP deletion category and cluster order before plotting. The resulting plot shows haplotype structure across the selected chromosome 11 duplicated-region subwindows and is saved as `duplicate_region_chr11.pdf`.
+
+```{r}
+
+add_haplotype_rainbow_axis_theming <-function(rainbow_plot, prepped_allele_data, target_col = "p_name", sample_col = "s_Sample"){
+  return(rainbow_plot + 
+           scale_x_continuous(
+             labels = levels(prepped_allele_data[[target_col]]),
+             breaks = 1:n_distinct(levels(prepped_allele_data[[target_col]])),
+             expand = c(0,0)
+           ) +
+           scale_y_continuous(
+             labels = levels(prepped_allele_data[[sample_col]]), 
+             breaks = 1:n_distinct(levels(prepped_allele_data[[sample_col]])), 
+             expand = c(0,0)
+           ) + 
+           theme(axis.text.y = element_text(family = "mono"), 
+                 axis.text.x = element_text(family = "mono", angle = -90, hjust = 0)))
+}
+#filtering monoclonal samples 
+
+# preparing the hrp3 deleted sample 
+sample_meta_with_hrp2_3_calls <- readr::read_tsv("input/sample_meta_with_hrp2_3_calls.tsv") %>% 
+  mutate(Sample = gsub("_S[0-9]+$", "", Sample))  %>% 
+  mutate(Sample = gsub("-D0", "_D0", Sample)) %>% 
+  mutate(Sample = gsub("NG-A4488_", "", Sample)) %>% 
+  mutate(Sample = gsub("_libLAN[0-9]+", "", Sample))
+monoclonal_samples <- sample_meta_with_hrp2_3_calls%>%
+  filter(fws >= 0.95)
+hrp3_deleted <- sample_meta_with_hrp2_3_calls%>%
+  filter(grepl("/hrp3-",hrp_deletion_call))
+
+
+allBasicInfo <- read_tsv("input/all_result_q20/PathWeaverResults/reports/populationClustering/reports/allBasicInfo.tab.txt.gz")
+allBasicInfo_sel = allBasicInfo %>% 
+  mutate(region_name = paste0(`#chrom`, "-", start, "-", end)) %>% 
+  select(region_name, sample, perBaseCoverage) %>% 
+  mutate(perBaseCoverage = log10(perBaseCoverage + 1)) %>% 
+  spread(region_name, perBaseCoverage)
+regions_sub_regions_meta = readr::read_tsv("input/all_result_q20/PathWeaverResults/subVarRegions/regions/bed_withGeneInfo.tsv")
+
+regions_sub_regions_meta_chr11_after_pf332 = regions_sub_regions_meta %>% 
+  filter(`#chrom` == "Pf3D7_11_v3", 
+       start >= 1954279) 
+# regions <- read_tsv("C:/Users/ahri2/Desktop/Desktop_2/files/download/Analysis_Surrounding_HRP2_3_deletions/DeletionPatternAnalysis/subwindows_regionMeta.tab.txt")
+# 
+# regions_afterHomologous_chr11 = regions %>% 
+#   filter(`#chrom` == "Pf3D7_11_v3", 
+#          afterHomologousRegion)# mutate(name=str_replace(name,"-f.*",""))
+# regions_afterHomologous_chr11 = regions_afterHomologous_chr11 %>% 
+#   mutate(description = case_when(
+#     grepl("extraField0=NA", extraField0) ~ "intergenic", 
+#     T ~ gsub("\\]", "", gsub(".*description=", "", extraField0))
+#   )  )
+# regions_afterHomologous_chr11_filt = regions %>% 
+#   filter(name %in% allSelectedClustersInfo_sub_regions_prep$p_name) %>% 
+#   mutate(genomicID = factor(genomicID, levels = levels(allSelectedClustersInfo_sub_regions_prep$p_name)))
+
+
+allSelectedClustersInfo_sub_regions = readr::read_tsv("input/all_result_q20/PathWeaverResults/subVarRegions/PathWeaverResults/reports/populationClustering/reports/allSelectedClustersInfo.tab.txt.gz") %>%
+  filter(s_Sample %in% unique(allBasicInfo_sel$sample))
+print(length(unique(allSelectedClustersInfo_sub_regions$s_Sample)))
+
+allSelectedClustersInfo_sub_regions_chr11_after_pf332 =
+  allSelectedClustersInfo_sub_regions %>%
+  filter(
+    p_name %in% regions_sub_regions_meta_chr11_after_pf332$name,
+    s_Sample %in% hrp3_deleted$Sample,
+    s_Sample %in% monoclonal_samples$Sample
+  )
+
+allSelectedClustersInfo_sub_regions_chr11_after_pf332_sp = allSelectedClustersInfo_sub_regions_chr11_after_pf332 %>% 
+  select(s_Sample, h_popUID) %>% 
+  unique() %>% 
+  mutate(marker = 1) %>% 
+  spread(h_popUID, marker, fill = 0)
+allSelectedClustersInfo_sub_regions_chr11_after_pf332_sp_mat = as.matrix(allSelectedClustersInfo_sub_regions_chr11_after_pf332_sp[,2:ncol(allSelectedClustersInfo_sub_regions_chr11_after_pf332_sp)])
+rownames(allSelectedClustersInfo_sub_regions_chr11_after_pf332_sp_mat) = allSelectedClustersInfo_sub_regions_chr11_after_pf332_sp$s_Sample
+allSelectedClustersInfo_sub_regions_chr11_after_pf332_sp_hclust = hclust(dist(allSelectedClustersInfo_sub_regions_chr11_after_pf332_sp_mat), method = "ward.D2")
+
+chr11_sample_order = tibble(
+  s_Sample = rownames(allSelectedClustersInfo_sub_regions_chr11_after_pf332_sp_mat)[allSelectedClustersInfo_sub_regions_chr11_after_pf332_sp_hclust$order] 
+)%>% 
+    mutate(chr11_order = 1:nrow(.))
+
+allSelectedClustersInfo_sub_regions_prep = HaplotypeRainbows::prepForRainbow(allSelectedClustersInfo_sub_regions_chr11_after_pf332)
+ 
+sample_meta_forcluster_data_order = sample_meta_with_hrp2_3_calls %>% 
+  filter(s_Sample %in% allSelectedClustersInfo_sub_regions_chr11_after_pf332$s_Sample) %>% 
+  mutate(hrp_deletion_call = factor(hrp_deletion_call, c("hrp2+/hrp3+", "hrp2-/hrp3+", "hrp2-/hrp3-", "hrp2+/hrp3-"))) %>% 
+  left_join(chr11_sample_order) %>% 
+  arrange(hrp_deletion_call, chr11_sample_order)
+
+
+
+
+allSelectedClustersInfo_sub_regions_prep = allSelectedClustersInfo_sub_regions_prep %>% 
+  mutate(s_Sample = factor(s_Sample, 
+         levels = intersect(sample_meta_forcluster_data_order$s_Sample, s_Sample)))
+
+print(length(unique(allSelectedClustersInfo_sub_regions_prep$s_Sample)))
+
+allSelectedClustersInfo_sub_regions_plot = HaplotypeRainbows::genRainbowHapPlotObj(allSelectedClustersInfo_sub_regions_prep) %>% 
+  add_haplotype_rainbow_axis_theming(allSelectedClustersInfo_sub_regions_prep)
+
+  # print(allSelectedClustersInfo_sub_regions_plot)
+cairo_pdf("output/figures/duplicate_region_chr11.pdf", width = 30, height = 15)
+print(allSelectedClustersInfo_sub_regions_plot)
+dev.off()
+```
+
+## Download HRP3-deleted chromosome 11 plot
+
+This chunk adds a report download link for the HRP3-deleted monoclonal chromosome 11 rainbow plot produced in the previous step. The link allows the full-resolution PDF to be opened separately from the embedded report figure.
+
+```{r}
+#| echo: false
+#| results: asis
+
+cat(createDownloadLink("output/figures/duplicate_region_chr11.pdf"))
+```
+## Display HRP3-deleted chromosome 11 plot
+
+This chunk renders the HRP3-deleted monoclonal chromosome 11 rainbow plot inside the HTML report. A large plotting area is used so that sample names, target-region labels, and haplotype color blocks remain readable.
+
+```{r}
+#| fig-width: 20
+#| fig-height: 20
+
+print(allSelectedClustersInfo_sub_regions_plot, merge_legends = T, background = "transparent")
+```
+
+## One-unique-haplotype cluster annotated chromosome 11 plot
+
+This chunk focuses on the samples assigned to the one-unique-haplotype chromosome 11 cluster set. It keeps chromosome 11 subregions from the selected region list, filters to samples found in the one-unique-haplotype cluster table, and retains loci represented in nearly all samples using a `sampleCount >= 0.99 * max(sampleCount)` completeness threshold. Samples are clustered with Ward's method from haplotype presence/absence profiles, ordered by HRP deletion category and cluster position, then shown as a rainbow plot with row annotations for collection site, HRP deletion status, and cluster assignment.
+
+```{r}
+library(readr)
+# unique 1 chormosome haplotype  
+jacardByHapsTarShared_mat_1unique_chr11_tib_clusters <- readr::read_tsv("input/jacard_result/jacardByHapsTarShared_mat_1unique_chr11_tib_clusters.txt")
+
+unique_1_cluster <- sample_meta_with_hrp2_3_calls %>% 
+  right_join(jacardByHapsTarShared_mat_1unique_chr11_tib_clusters, by = c("s_Sample" = "sample"))
+allSelectedClustersInfo_sub_regions_filtered = allSelectedClustersInfo_sub_regions %>%
+  filter(
+    p_name %in% regions_sub_regions_meta_chr11_after_pf332$name,
+    s_Sample %in% unique_1_cluster$s_Sample) %>%   
+  group_by(p_name) %>%
+  #filter(any(c_AveragedFrac != 1)) %>%
+  ungroup()
+# make sure the samples number is similar with the hrp3 deleted samples
+print(length(unique(allSelectedClustersInfo_sub_regions_filtered$p_name)))
+# NOW do the clustering and ordering on the filtered data
+allSelectedClustersInfo_sub_regions_chr11_after_pf332_sp = allSelectedClustersInfo_sub_regions_filtered %>%
+  group_by(p_name) %>% 
+  mutate(sampleCount = length(unique(s_Sample))) %>% 
+  group_by() %>% 
+  filter(sampleCount >= 0.99*max(sampleCount)) %>% 
+  group_by(s_Sample, p_name) %>% 
+  #filter(c_AveragedFrac == max(c_AveragedFrac)) %>% 
+  mutate(marker = 1) %>% 
+  group_by() %>% 
+  select(h_popUID, marker, s_Sample) %>%   
+  spread(h_popUID, marker, fill = 0)
+
+allSelectedClustersInfo_sub_regions_chr11_after_pf332_sp_mat = as.matrix(allSelectedClustersInfo_sub_regions_chr11_after_pf332_sp[,2:ncol(allSelectedClustersInfo_sub_regions_chr11_after_pf332_sp)])
+rownames(allSelectedClustersInfo_sub_regions_chr11_after_pf332_sp_mat) = allSelectedClustersInfo_sub_regions_chr11_after_pf332_sp$s_Sample
+allSelectedClustersInfo_sub_regions_chr11_after_pf332_sp_hclust = hclust(dist(allSelectedClustersInfo_sub_regions_chr11_after_pf332_sp_mat), method = "ward.D2")
+
+
+# Create sample order from clustered filtered samples
+chr11_sample_order = tibble(
+  s_Sample = rownames(allSelectedClustersInfo_sub_regions_chr11_after_pf332_sp_mat)[
+    allSelectedClustersInfo_sub_regions_chr11_after_pf332_sp_hclust$order
+  ] 
+) %>% 
+  mutate(chr11_order = 1:nrow(.))
+
+# Prepare metadata with correct sample order
+sample_meta_forcluster_data_order = unique_1_cluster %>% 
+  filter(s_Sample %in% allSelectedClustersInfo_sub_regions_filtered$s_Sample) %>% 
+  mutate(hrp_deletion_call = factor(hrp_deletion_call, 
+                                    c("hrp2+/hrp3+", "hrp2-/hrp3+", 
+                                      "hrp2-/hrp3-", "hrp2+/hrp3-"))) %>% 
+  left_join(chr11_sample_order) %>% 
+  arrange(hrp_deletion_call, chr11_sample_order)
+
+# Prepare the data for rainbow plot with correct factor levels
+allSelectedClustersInfo_sub_regions_prep = HaplotypeRainbows::prepForRainbow(
+  allSelectedClustersInfo_sub_regions_filtered
+) %>% 
+  mutate(s_Sample = factor(s_Sample, 
+                          levels = sample_meta_forcluster_data_order$s_Sample))
+
+# Create the plot
+allSelectedClustersInfo_sub_regions_plot = HaplotypeRainbows::genRainbowHapPlotObj(
+  allSelectedClustersInfo_sub_regions_prep
+) %>% 
+  add_haplotype_rainbow_axis_theming(allSelectedClustersInfo_sub_regions_prep)
+
+
+allSelectedClustersInfo_sub_regions_plot = allSelectedClustersInfo_sub_regions_plot +
+  theme(axis.text.y = element_text(family = "mono"), 
+        axis.text.x = element_text(family = "mono", angle = -90, hjust = 0))
+
+# ============================================
+# STEP 2: Prepare annotation data
+# ============================================
+# Get the sample order from your prepared data
+sample_order <- levels(allSelectedClustersInfo_sub_regions_prep$s_Sample) 
+
+# Create annotation data frame with y-positions
+annotation_data <- sample_meta_forcluster_data_order %>%
+  filter(s_Sample %in% sample_order) %>%
+  mutate(
+    y_position = as.numeric(factor(s_Sample, levels = sample_order))
+  ) %>%
+    mutate(
+    site = trimws(as.character(site)),
+    hrp_deletion_call = trimws(as.character(hrp_deletion_call))
+  ) %>% 
+  select(s_Sample, y_position, site, hrp_deletion_call, 
+         # Add any other metadata columns you have
+          everything())
+
+sample_order <- annotation_data %>%
+  arrange(cluster) %>%
+  pull(s_Sample)
+
+annotation_data <- annotation_data %>%
+  mutate(
+    s_Sample = factor(s_Sample, levels = sample_order),
+    y_position = as.numeric(s_Sample)
+  )
+# ============================================
+# STEP 3: Define color schemes (automatic)
+# ============================================
+
+# Get unique values from your data
+ 
+
+# Automatically generate colors
+unique_sites <- sort(unique(annotation_data$site))
+
+site_colors <- setNames(
+  colorRampPalette(brewer.pal(8, "Set2"))(length(unique_sites)),
+  unique_sites
+)
+
+unique_hrp <- sort(unique(annotation_data$hrp_deletion_call))
+
+hrp_colors <- setNames(
+  colorRampPalette(brewer.pal(4, "Set1"))(length(unique_hrp)),
+  unique_hrp
+)
+unique_clusters <- sort(unique(annotation_data$cluster))
+
+cluster_colors <- setNames(
+  colorRampPalette(brewer.pal(8, "Dark2"))(length(unique_clusters)),
+  unique_clusters
+)
+
+
+# ============================================
+# STEP 4: Add annotations to the plot
+# ============================================
+
+# Define annotation positions (adjust these values as needed)
+# xmin, xmax - negative values place bars to the LEFT of main plot
+annotation_positions <- list(
+  site = c(0, -2.5),
+  hrp = c(-3, -5.5),
+  cluster = c(-6, -8.5)
+)
+
+# Build the annotated plot
+allSelectedClustersInfo_sub_regions_annotated <- allSelectedClustersInfo_sub_regions_plot +
+
+  # Annotation 1: Site information
+  ggnewscale::new_scale_fill() +
+  geom_rect(data = annotation_data,
+            aes(xmin = annotation_positions$site[1], 
+                xmax = annotation_positions$site[2],
+                ymin = y_position - 0.5, 
+                ymax = y_position + 0.5, 
+                fill = site),
+            color = "black", size = 0.1) +
+  scale_fill_manual("Site", values = site_colors,
+                    guide = guide_legend(nrow = 2, title.position = "top")) +
+
+  # Annotation 2: HRP deletion status
+  ggnewscale::new_scale_fill() +
+  geom_rect(data = annotation_data,
+            aes(xmin = annotation_positions$hrp[1], 
+                xmax = annotation_positions$hrp[2],
+                ymin = y_position - 0.5, 
+                ymax = y_position + 0.5, 
+                fill = hrp_deletion_call),
+            color = "black", size = 0.1) +
+  scale_fill_manual("HRP Status", values = hrp_colors,
+                    guide = guide_legend(nrow = 2, title.position = "top")) +
+        ggnewscale::new_scale_fill() +
+      geom_rect(
+        data = annotation_data,
+        aes(
+          xmin = annotation_positions$cluster[1],
+          xmax = annotation_positions$cluster[2],
+          ymin = y_position - 0.5,
+          ymax = y_position + 0.5,
+          fill = factor(cluster)
+        ),
+        color = "black",
+        size = 0.1
+      ) +
+      scale_fill_manual(
+        "Cluster",
+        values = cluster_colors
+      ) +
+
+  # Expand the x-axis limits to show the annotations
+  coord_cartesian(xlim = c(-9, NA), clip = "off") +
+
+  # Improve theme for legends
+  theme(
+    legend.position = "bottom",
+    legend.box = "vertical",
+    legend.margin = margin(t = 10, r = 0, b = 0, l = 0),
+    legend.title = element_text(size = 10, face = "bold"),
+    legend.text = element_text(size = 8),
+    plot.margin = margin(10, 10, 10, 60)  # Extra right margin for spacing
+  )
+
+# Display the plot
+# print(allSelectedClustersInfo_sub_regions_annotated)
+
+
+```
+
+## Display one-unique-haplotype annotated plot
+
+This chunk displays the annotated rainbow plot for the one-unique-haplotype cluster subset. The larger figure dimensions help make the sample ordering, site annotation, HRP deletion status, and cluster annotation visible in the rendered report.
+
+```{r}
+#| fig-width: 20
+#| fig-height: 20
+
+print(allSelectedClustersInfo_sub_regions_annotated, merge_legends = T, background = "transparent")
+```
+## Save one-unique-haplotype annotated plot
+
+This chunk writes the one-unique-haplotype annotated chromosome 11 rainbow plot to a PDF. The saved version uses a wide layout so that the full set of chromosome 11 subregions and sample annotations can be inspected outside the HTML report.
+
+```{r}
+cairo_pdf("output/figures/duplicate_chr11_unique_hapls.pdf", width = 30, height = 20)
+print(allSelectedClustersInfo_sub_regions_annotated)
+dev.off()
+```
+## Download one-unique-haplotype annotated plot
+
+This chunk adds a download link for the one-unique-haplotype annotated PDF. This makes the exported plot available directly from the report after rendering.
+
+```{r}
+#| echo: false
+#| results: asis
+
+cat(createDownloadLink("output/figures/duplicate_chr11_unique_hapls.pdf"))
+```
+
+## Two-unique-haplotype diverse-locus annotated plot
+
+This chunk analyzes the two-unique-haplotype chromosome 11 cluster set and narrows the plot to loci with strong evidence of within-sample haplotype diversity. It first filters to chromosome 11 subregions and samples from the two-unique-haplotype cluster table, removes loci where all samples have a single averaged fraction, then calculates the proportion of samples with at least two alleles at each locus. Only loci where at least 50 percent of samples are multi-allelic (`prop_multi >= 0.5`) are retained, and loci must also pass the near-complete sample coverage filter (`sampleCount >= 0.99 * max(sampleCount)`). The selected samples are clustered by haplotype presence/absence using Ward's method and plotted with annotations for site, HRP deletion status, and cluster.
+
+```{r}
+jacardByHapsTarShared_mat_2unique_chr11_tib_clusters <- readr::read_tsv("input/jacard_result/jacardByHapsTarShared_mat_2unique_chr11_tib_clusters.txt")
+
+unique_2_cluster <- sample_meta_with_hrp2_3_calls %>% 
+  right_join(jacardByHapsTarShared_mat_2unique_chr11_tib_clusters, by = c("s_Sample" = "sample"))
+allSelectedClustersInfo_sub_regions_filtered = allSelectedClustersInfo_sub_regions %>%
+  filter(
+    p_name %in% regions_sub_regions_meta_chr11_after_pf332$name,
+    s_Sample %in% unique_2_cluster$s_Sample) %>%   
+  group_by(p_name) %>%
+  filter(any(c_AveragedFrac != 1)) %>%
+  ungroup()
+allele_counts <- allSelectedClustersInfo_sub_regions_filtered %>%
+  group_by(p_name, s_Sample) %>%
+  summarise(
+    n_alleles = n_distinct(h_popUID),
+    .groups = "drop"
+  )
+locus_diversity <- allele_counts %>%
+  group_by(p_name) %>%
+  summarise(
+    n_samples = n(),
+    prop_multi = mean(n_alleles >= 2),
+    mean_alleles = mean(n_alleles),
+    .groups = "drop"
+  ) %>%
+  arrange(desc(prop_multi))
+keep_loci <- locus_diversity %>%
+  filter(prop_multi >= 0.5) %>%
+  pull(p_name)
+
+filtered_data <- allSelectedClustersInfo_sub_regions_filtered %>%
+  filter(p_name %in% keep_loci)
+allSelectedClustersInfo_sub_regions_filtered <- filtered_data
+# make sure the samples number is similar with the hrp3 deleted samples
+print(length(unique(filtered_data$s_Sample)))
+# NOW do the clustering and ordering on the filtered data
+allSelectedClustersInfo_sub_regions_chr11_after_pf332_sp = filtered_data %>%
+  group_by(p_name) %>% 
+  mutate(sampleCount = length(unique(s_Sample))) %>% 
+  group_by() %>% 
+  filter(sampleCount >= 0.99*max(sampleCount)) %>% 
+  group_by(s_Sample, p_name) %>% 
+  #filter(c_AveragedFrac == max(c_AveragedFrac)) %>% 
+  mutate(marker = 1) %>% 
+  group_by() %>% 
+  select(h_popUID, marker, s_Sample) %>%   
+  spread(h_popUID, marker, fill = 0)
+
+allSelectedClustersInfo_sub_regions_chr11_after_pf332_sp_mat = as.matrix(allSelectedClustersInfo_sub_regions_chr11_after_pf332_sp[,2:ncol(allSelectedClustersInfo_sub_regions_chr11_after_pf332_sp)])
+rownames(allSelectedClustersInfo_sub_regions_chr11_after_pf332_sp_mat) = allSelectedClustersInfo_sub_regions_chr11_after_pf332_sp$s_Sample
+allSelectedClustersInfo_sub_regions_chr11_after_pf332_sp_hclust = hclust(dist(allSelectedClustersInfo_sub_regions_chr11_after_pf332_sp_mat), method = "ward.D2")
+
+
+# Create sample order from clustered filtered samples
+chr11_sample_order = tibble(
+  s_Sample = rownames(allSelectedClustersInfo_sub_regions_chr11_after_pf332_sp_mat)[
+    allSelectedClustersInfo_sub_regions_chr11_after_pf332_sp_hclust$order
+  ] 
+) %>% 
+  mutate(chr11_order = 1:nrow(.))
+
+# Prepare metadata with correct sample order
+sample_meta_forcluster_data_order = unique_2_cluster %>% 
+  filter(s_Sample %in% allSelectedClustersInfo_sub_regions_filtered$s_Sample) %>% 
+  mutate(hrp_deletion_call = factor(hrp_deletion_call, 
+                                    c("hrp2+/hrp3+", "hrp2-/hrp3+", 
+                                      "hrp2-/hrp3-", "hrp2+/hrp3-"))) %>% 
+  left_join(chr11_sample_order) %>% 
+  arrange(hrp_deletion_call, chr11_sample_order)
+
+# Prepare the data for rainbow plot with correct factor levels
+allSelectedClustersInfo_sub_regions_prep = HaplotypeRainbows::prepForRainbow(
+  allSelectedClustersInfo_sub_regions_filtered
+) %>% 
+  mutate(s_Sample = factor(s_Sample, 
+                          levels = sample_meta_forcluster_data_order$s_Sample))
+
+# Create the plot
+allSelectedClustersInfo_sub_regions_plot = HaplotypeRainbows::genRainbowHapPlotObj(
+  allSelectedClustersInfo_sub_regions_prep
+) %>% 
+  add_haplotype_rainbow_axis_theming(allSelectedClustersInfo_sub_regions_prep)
+
+
+allSelectedClustersInfo_sub_regions_plot = allSelectedClustersInfo_sub_regions_plot +
+  theme(axis.text.y = element_text(family = "mono"), 
+        axis.text.x = element_text(family = "mono", angle = -90, hjust = 0))
+
+# ============================================
+# STEP 2: Prepare annotation data
+# ============================================
+# Get the sample order from your prepared data
+sample_order <- levels(allSelectedClustersInfo_sub_regions_prep$s_Sample) 
+
+# Create annotation data frame with y-positions
+annotation_data <- sample_meta_forcluster_data_order %>%
+  filter(s_Sample %in% sample_order) %>%
+  mutate(
+    y_position = as.numeric(factor(s_Sample, levels = sample_order))
+  ) %>%
+    mutate(
+    site = trimws(as.character(site)),
+    hrp_deletion_call = trimws(as.character(hrp_deletion_call))
+  ) %>% 
+  select(s_Sample, y_position, site, hrp_deletion_call, 
+         # Add any other metadata columns you have
+          everything())
+
+sample_order <- annotation_data %>%
+  arrange(cluster) %>%
+  pull(s_Sample)
+
+annotation_data <- annotation_data %>%
+  mutate(
+    s_Sample = factor(s_Sample, levels = sample_order),
+    y_position = as.numeric(s_Sample)
+  )
+# ============================================
+# STEP 3: Define color schemes (automatic)
+# ============================================
+library(RColorBrewer)
+
+# Get unique values from your data
+ 
+
+# Automatically generate colors
+unique_sites <- sort(unique(annotation_data$site))
+
+site_colors <- setNames(
+  colorRampPalette(brewer.pal(8, "Set2"))(length(unique_sites)),
+  unique_sites
+)
+
+unique_hrp <- sort(unique(annotation_data$hrp_deletion_call))
+
+hrp_colors <- setNames(
+  colorRampPalette(brewer.pal(4, "Set1"))(length(unique_hrp)),
+  unique_hrp
+)
+unique_clusters <- sort(unique(annotation_data$cluster))
+
+cluster_colors <- setNames(
+  colorRampPalette(brewer.pal(8, "Dark2"))(length(unique_clusters)),
+  unique_clusters
+)
+
+
+# ============================================
+# STEP 4: Add annotations to the plot
+# ============================================
+
+# Define annotation positions (adjust these values as needed)
+# xmin, xmax - negative values place bars to the LEFT of main plot
+annotation_positions <- list(
+  site = c(0, -2.5),
+  hrp = c(-3, -5.5),
+  cluster = c(-6, -8.5)
+)
+site_mid    <- mean(annotation_positions$site)
+hrp_mid     <- mean(annotation_positions$hrp)
+cluster_mid <- mean(annotation_positions$cluster)
+# Build the annotated plot
+allSelectedClustersInfo_sub_regions_annotated <- allSelectedClustersInfo_sub_regions_plot +
+
+  # Annotation 1: Site information
+  ggnewscale::new_scale_fill() +
+  geom_rect(data = annotation_data,
+            aes(xmin = annotation_positions$site[1], 
+                xmax = annotation_positions$site[2],
+                ymin = y_position - 0.5, 
+                ymax = y_position + 0.5, 
+                fill = site),
+            color = "black", size = 0.1) +
+  scale_fill_manual("Site", values = site_colors,
+                    guide = guide_legend(nrow = 2, title.position = "top")) +
+
+  # Annotation 2: HRP deletion status
+  ggnewscale::new_scale_fill() +
+  geom_rect(data = annotation_data,
+            aes(xmin = annotation_positions$hrp[1], 
+                xmax = annotation_positions$hrp[2],
+                ymin = y_position - 0.5, 
+                ymax = y_position + 0.5, 
+                fill = hrp_deletion_call),
+            color = "black", size = 0.1) +
+  scale_fill_manual("HRP Status", values = hrp_colors,
+                    guide = guide_legend(nrow = 2, title.position = "top")) +
+        ggnewscale::new_scale_fill() +
+      geom_rect(
+        data = annotation_data,
+        aes(
+          xmin = annotation_positions$cluster[1],
+          xmax = annotation_positions$cluster[2],
+          ymin = y_position - 0.5,
+          ymax = y_position + 0.5,
+          fill = factor(cluster)
+        ),
+        color = "black",
+        size = 0.1
+      ) +
+      scale_fill_manual(
+        "Cluster",
+        values = cluster_colors
+      ) +
+
+  # Expand the x-axis limits to show the annotations
+  coord_cartesian(xlim = c(-9, NA), clip = "off") +
+ annotate(
+    "text",
+    x = c(site_mid, hrp_mid, cluster_mid),
+    y = max(as.numeric(annotation_data$BiologicalSample)) + 1,
+    label = c("Site", "HRP", "Cluster"),
+    angle = 90,
+    fontface = "bold",
+    size = 10
+  ) +
+
+  # Improve theme for legends
+  theme(
+    legend.position = "bottom",
+    legend.box = "vertical",
+    legend.margin = margin(t = 10, r = 0, b = 0, l = 0),
+    legend.title = element_text(size = 10, face = "bold"),
+    legend.text = element_text(size = 8),
+    plot.margin = margin(10, 10, 30, 60)  # Extra right margin for spacing
+  )
+
+# Display the plot
+# print(allSelectedClustersInfo_sub_regions_annotated)
+
+```
+## Display two-unique-haplotype diverse-locus plot
+
+This chunk displays the annotated rainbow plot for the diverse loci retained from the two-unique-haplotype cluster analysis. The rendered plot is used to compare how the high-diversity chromosome 11 regions separate samples by site, HRP deletion status, and cluster grouping.
+
+```{r}
+#| fig-width: 20
+#| fig-height: 20
+
+print(allSelectedClustersInfo_sub_regions_annotated, merge_legends = T, background = "transparent")
+```
+## Save two-unique-haplotype diverse-locus plot
+
+This chunk exports the two-unique-haplotype diverse-locus annotated rainbow plot to PDF. The saved file preserves the larger layout needed for reviewing the sample rows, diverse loci, and annotation tracks.
+
+```{r}
+cairo_pdf("output/figures/duplicate_chr11_unique2_diverse.pdf", width = 30, height = 20)
+print(allSelectedClustersInfo_sub_regions_annotated)
+dev.off()
+```
+
+## Download two-unique-haplotype diverse-locus plot
+
+This chunk inserts a report download link for the two-unique-haplotype diverse-locus PDF so the exported version can be accessed from the HTML output.
+
+```{r}
+#| echo: false
+#| results: asis
+
+cat(createDownloadLink("output/figures/duplicate_chr11_unique2_diverse.pdf"))
+```
+
+
+## Chromosome 11 subwindow gene metadata
+
+This chunk loads the chromosome 11 subwindow metadata and keeps the regions marked as after the homologous region. It also converts the metadata field into a readable region description, assigning `intergenic` when no gene description is present. These descriptions are used later to interpret which chromosome 11 target windows overlap named genes versus intergenic sequence.
+
+```{r}
+regions <- readr::read_tsv("input/subwindows_regionMeta.tab.txt")
+regions_afterHomologous_chr11 = regions %>% 
+  filter(`#chrom` == "Pf3D7_11_v3", 
+         afterHomologousRegion)
+
+regions_afterHomologous_chr11 = regions_afterHomologous_chr11 %>% 
+  mutate(description = case_when(
+    grepl("extraField0=NA", extraField0) ~ "intergenic", 
+    T ~ gsub("\\]", "", gsub(".*description=", "", extraField0))
+  )  )
+
+
+```
+
+## Combined unique-cluster chromosome 11 annotated plot
+
+This chunk combines information from the one-unique-haplotype and two-unique-haplotype analyses into a single chromosome 11 visualization. It keeps diverse loci identified from the two-unique-haplotype analysis together with selected one-unique-haplotype regions, restricts cluster groups to those with at least two samples, renames clusters into a consistent sequence, and orders samples by cluster before plotting. The final rainbow plot uses cleaned sample names and includes row annotations for site, HRP deletion status, and cluster, plus a bottom annotation identifying the chromosome 11 target region category.
+
+```{r}
+#| echo: false
+
+# ============================================
+# FIXED add_haplotype_rainbow_axis_theming function
+# ============================================
+add_haplotype_rainbow_axis_theming <- function(rainbow_plot, prepped_allele_data, target_col = "p_name", sample_col = "Sample") {
+  # Check if the sample_col exists in the data, if not use "s_Sample"
+  if(!sample_col %in% colnames(prepped_allele_data)) {
+    sample_col <- "s_Sample"
+    warning(paste0("Column '", sample_col, "' not found. Using 's_Sample' instead."))
+  }
+  
+  return(rainbow_plot + 
+           scale_y_continuous(
+             labels = levels(prepped_allele_data[[sample_col]]), 
+             breaks = 1:n_distinct(levels(prepped_allele_data[[sample_col]])), 
+             expand = c(0,0)
+           ) + 
+           theme(axis.text.y = element_text(family = "mono", size = 8), 
+                 axis.text.x = element_text(family = "mono", angle = -90, hjust = 0, size = 8)))
+}
+
+# ============================================
+# MAIN CODE
+# ============================================
+
+allSelectedClustersInfo_sub_regions = readr::read_tsv("input/all_result_q20/PathWeaverResults/subVarRegions/PathWeaverResults/reports/populationClustering/reports/allSelectedClustersInfo.tab.txt.gz") %>%
+  filter(s_Sample %in% unique(allBasicInfo_sel$sample)) %>% 
+    mutate(
+    Sample = gsub("_S[0-9]+$", "", s_Sample),
+    Sample = gsub("-D0", "_D0", Sample),
+    Sample = gsub("NG-A4488_", "", Sample),
+    Sample = gsub("_libLAN[0-9]+", "", Sample)
+  )
+
+# ============================================
+# STEP 1: Process data and create initial plot
+# ============================================
+
+unique1_filtered <- allSelectedClustersInfo_sub_regions %>%
+  filter(
+    s_Sample %in% unique_1_cluster$s_Sample,
+    p_name %in% keep_loci
+  )
+
+filtered_data <- filtered_data %>% 
+      mutate(
+    Sample = gsub("_S[0-9]+$", "", s_Sample),
+    Sample = gsub("-D0", "_D0", Sample),
+    Sample = gsub("NG-A4488_", "", Sample),
+    Sample = gsub("_libLAN[0-9]+", "", Sample)
+  )
+combined_data <- bind_rows(
+  filtered_data,      # diverse loci
+  unique1_filtered
+)
+
+print(length(unique(combined_data$s_Sample)))
+
+unique_1_sample_cluster <- unique_1_cluster %>%
+  group_by(cluster) %>%
+  mutate(count = n()) %>%
+  filter(count >= 2) %>%
+  ungroup() %>%
+  mutate(
+    cluster_original = paste0("unique1_cluster_", cluster),
+    cluster = paste0(
+      "U1_C",
+      match(
+        cluster,
+        sort(unique(cluster))
+      )
+    )
+  )
+
+unique_2_sample_cluster <- unique_2_cluster %>%
+  group_by(cluster) %>%
+  mutate(count = n()) %>%
+  filter(count >= 2) %>%
+  ungroup() %>%
+  mutate(
+    cluster_original = paste0("unique2_cluster_", cluster),
+    cluster = paste0(
+      "U2_C",
+      match(
+        cluster,
+        sort(unique(cluster))
+      )
+    )
+  )
+
+merged_unique_cluster <- bind_rows(unique_1_sample_cluster, unique_2_sample_cluster)
+
+# Rename clusters in ascending order
+unique_clusters_original <- merged_unique_cluster$cluster %>%
+  unique() %>%
+  .[order(as.numeric(gsub(".*cluster_", "", .)))]
+
+cluster_rename_map <- setNames(
+  paste0("Cluster_", seq_along(unique_clusters_original)),
+  unique_clusters_original
+)
+
+merged_unique_cluster <- merged_unique_cluster %>%
+  mutate(
+    cluster_original = cluster,
+    cluster = cluster_rename_map[cluster],
+    cluster_numeric = as.numeric(gsub(".*cluster_", "", cluster_original))
+  ) %>%
+  arrange(cluster_numeric)
+
+combined_data_cluster <- combined_data %>% 
+  filter(s_Sample %in% merged_unique_cluster$s_Sample)
+
+allSelectedClustersInfo_sub_regions_filtered <- combined_data_cluster
+
+allSelectedClustersInfo_sub_regions_chr11_after_pf332_sp = allSelectedClustersInfo_sub_regions_filtered %>%
+  group_by(p_name) %>% 
+  mutate(sampleCount = length(unique(s_Sample))) %>% 
+  group_by() %>% 
+  filter(sampleCount >= 0.99*max(sampleCount)) %>% 
+  group_by(s_Sample, p_name) %>% 
+  mutate(marker = 1) %>% 
+  group_by() %>% 
+  select(h_popUID, marker, s_Sample) %>%   
+  spread(h_popUID, marker, fill = 0)
+
+allSelectedClustersInfo_sub_regions_chr11_after_pf332_sp_mat = as.matrix(allSelectedClustersInfo_sub_regions_chr11_after_pf332_sp[,2:ncol(allSelectedClustersInfo_sub_regions_chr11_after_pf332_sp)])
+rownames(allSelectedClustersInfo_sub_regions_chr11_after_pf332_sp_mat) = allSelectedClustersInfo_sub_regions_chr11_after_pf332_sp$s_Sample
+allSelectedClustersInfo_sub_regions_chr11_after_pf332_sp_hclust = hclust(dist(allSelectedClustersInfo_sub_regions_chr11_after_pf332_sp_mat), method = "ward.D2")
+
+# Create sample order from clustered filtered samples
+chr11_sample_order = tibble(
+  s_Sample = rownames(allSelectedClustersInfo_sub_regions_chr11_after_pf332_sp_mat)[
+    allSelectedClustersInfo_sub_regions_chr11_after_pf332_sp_hclust$order
+  ] 
+) %>% 
+  mutate(chr11_order = 1:nrow(.))
+
+# ============================================
+# STEP 2: Order samples by CLUSTER column
+# ============================================
+
+# Prepare metadata with cluster-based ordering
+sample_meta_forcluster_data_order = merged_unique_cluster %>% 
+  filter(s_Sample %in% allSelectedClustersInfo_sub_regions_filtered$s_Sample) %>% 
+  mutate(hrp_deletion_call = factor(hrp_deletion_call, 
+                                    c("hrp2+/hrp3+", "hrp2-/hrp3+", 
+                                      "hrp2-/hrp3-", "hrp2+/hrp3-"))) %>% 
+  left_join(chr11_sample_order) %>% 
+  arrange(cluster, chr11_order)
+
+# Create cleaned sample names
+# sample_meta_forcluster_data_order <- sample_meta_forcluster_data_order %>%
+#   mutate(
+#     Sample = gsub("_S[0-9]+$", "", s_Sample),
+#     Sample = gsub("-D0", "_D0", Sample),
+#     Sample = gsub("NG-A4488_", "", Sample),
+#     Sample = gsub("_libLAN[0-9]+", "", Sample)
+#   )
+
+# Create the sample order vector based on cluster ordering
+sample_order_by_cluster <- sample_meta_forcluster_data_order$Sample
+
+# Prepare the data for rainbow plot with cluster-based ordering
+allSelectedClustersInfo_sub_regions_prep <- 
+  HaplotypeRainbows::prepForRainbow(
+    allSelectedClustersInfo_sub_regions_filtered
+  ) %>%
+  mutate(
+    Sample = gsub("_S[0-9]+$", "", s_Sample),
+    Sample = gsub("-D0", "_D0", Sample),
+    Sample = gsub("NG-A4488_", "", Sample),
+    Sample = gsub("_libLAN[0-9]+", "", Sample)
+  ) %>% 
+  mutate(
+    Sample = factor(Sample, levels = sample_order_by_cluster)
+  )
+  # Create cleaned Sample names as a separate column
+  # mutate(
+  #   Sample = gsub("_S[0-9]+$", "", s_Sample),
+  #   Sample = gsub("-D0", "_D0", Sample),
+  #   Sample = gsub("NG-A4488_", "", Sample),
+  #   Sample = gsub("_libLAN[0-9]+", "", Sample)
+  # ) %>%
+  # Set Sample as factor with same order as s_Sample
+
+genRainbowHapPlotObj <- function (prepData, sampleCol = Sample, targetCol = p_name, 
+    popUIDCol = h_popUID, relAbundCol = c_AveragedFrac, colorCol = popidFracLogColor, 
+    colors = RColorBrewer::brewer.pal(11, "Spectral")) 
+{
+    genRainbowHapPlotObjActualFracLogColor(prepData, {
+        {
+            sampleCol
+        }
+    }, {
+        {
+            targetCol
+        }
+    }, {
+        {
+            popUIDCol
+        }
+    }, {
+        {
+            relAbundCol
+        }
+    }, {
+        {
+            colorCol
+        }
+    }, colors)
+}
+# Create the plot WITHOUT the auto theming first
+allSelectedClustersInfo_sub_regions_plot_base = genRainbowHapPlotObj(
+  allSelectedClustersInfo_sub_regions_prep
+)
+
+# Apply custom theming with the Sample column
+allSelectedClustersInfo_sub_regions_plot = add_haplotype_rainbow_axis_theming(
+  allSelectedClustersInfo_sub_regions_plot_base,
+  allSelectedClustersInfo_sub_regions_prep,
+  target_col = "p_name",
+  sample_col = "Sample"  # Use the cleaned Sample column
+)
+
+# ============================================
+# STEP 3: Prepare annotation data with cluster ordering
+# ============================================
+
+# Get the sample order from your prepared data
+sample_order <- levels(allSelectedClustersInfo_sub_regions_prep$Sample)
+
+annotation_data <- sample_meta_forcluster_data_order %>%
+  filter(Sample %in% sample_order) %>%
+  mutate(
+    y_position = as.numeric(
+      factor(Sample, levels = sample_order)
+    )
+  )
+
+# ============================================
+# STEP 4: Define color schemes
+# ============================================
+library(RColorBrewer)
+
+# Get unique values from your data
+unique_sites <- sort(unique(annotation_data$site))
+site_colors <- setNames(
+  colorRampPalette(brewer.pal(8, "Set2"))(length(unique_sites)),
+  unique_sites
+)
+
+unique_hrp <- sort(unique(annotation_data$hrp_deletion_call))
+hrp_colors <- setNames(
+  colorRampPalette(brewer.pal(4, "Set1"))(length(unique_hrp)),
+  unique_hrp
+)
+
+unique_clusters <- unique(annotation_data$cluster_original)
+cluster_colors <- setNames(
+  colorRampPalette(brewer.pal(8, "Dark2"))(length(unique_clusters)),
+  unique_clusters
+)
+
+# ============================================
+# STEP 5: Add row annotations to the plot
+# ============================================
+
+# Define annotation positions
+annotation_positions <- list(
+  site = c(0, -2.5),
+  hrp = c(-3, -5.5),
+  cluster = c(-6, -8.5)
+)
+
+# Build the annotated plot
+allSelectedClustersInfo_sub_regions_annotated <- allSelectedClustersInfo_sub_regions_plot +
+
+  # Annotation 1: Site information
+  ggnewscale::new_scale_fill() +
+  geom_rect(data = annotation_data,
+            aes(xmin = annotation_positions$site[1], 
+                xmax = annotation_positions$site[2],
+                ymin = y_position - 0.5, 
+                ymax = y_position + 0.5, 
+                fill = site),
+            color = "black", size = 0.1) +
+  scale_fill_manual("Site", values = site_colors,
+                    guide = guide_legend(nrow = 2, title.position = "top")) +
+
+  # Annotation 2: HRP deletion status
+  ggnewscale::new_scale_fill() +
+  geom_rect(data = annotation_data,
+            aes(xmin = annotation_positions$hrp[1], 
+                xmax = annotation_positions$hrp[2],
+                ymin = y_position - 0.5, 
+                ymax = y_position + 0.5, 
+                fill = hrp_deletion_call),
+            color = "black", size = 0.1) +
+  scale_fill_manual("HRP Status", values = hrp_colors,
+                    guide = guide_legend(nrow = 2, title.position = "top")) +
+  
+  # Annotation 3: Cluster information
+  ggnewscale::new_scale_fill() +
+  geom_rect(data = annotation_data,
+            aes(xmin = annotation_positions$cluster[1], 
+                xmax = annotation_positions$cluster[2],
+                ymin = y_position - 0.5, 
+                ymax = y_position + 0.5, 
+                fill = cluster_original),
+            color = "black", size = 0.1) +
+  scale_fill_manual("Cluster", values = cluster_colors,
+                    guide = guide_legend(nrow = 2, title.position = "top"))
+
+# ============================================
+# STEP 6: Add bottom annotations for targets
+# ============================================
+
+# Create a proper data frame for the bottom annotation
+bottom_annotation_data <- allSelectedClustersInfo_sub_regions_prep %>%
+  select(p_name) %>%
+  distinct() %>%
+  mutate(
+    p_name_numeric = as.numeric(factor(p_name, levels = levels(allSelectedClustersInfo_sub_regions_prep$p_name))),
+    target = "Chr11_diverse_region"
+  )
+
+# Get unique targets and assign colors
+unique_target <- sort(unique(bottom_annotation_data$target))
+target_colors <- setNames(
+  colorRampPalette(brewer.pal(8, "Dark2"))(length(unique_target)),
+  unique_target
+)
+
+# Add the bottom annotation to the plot
+allSelectedClustersInfo_sub_regions_annotated <- allSelectedClustersInfo_sub_regions_annotated +
+  ggnewscale::new_scale_fill() +
+  geom_rect(data = bottom_annotation_data,
+            aes(xmin = p_name_numeric - 0.5,
+                xmax = p_name_numeric + 0.5,
+                ymax = 0,
+                ymin = -3,
+                fill = target),
+            color = "black", size = 0.2) +
+  scale_fill_manual("Target Region", 
+                    values = target_colors,
+                    guide = guide_legend(nrow = 1, title.position = "top")) +
+  
+  # Adjust coordinate limits to show all annotations
+  coord_cartesian(xlim = c(-9, NA), ylim = c(-3.5, NA), clip = "off") +
+  
+  # Final theme adjustments
+  theme(
+    legend.position = "bottom",
+    legend.box = "vertical",
+    legend.margin = margin(t = 10, r = 0, b = 0, l = 0),
+    legend.title = element_text(size = 10, face = "bold"),
+    legend.text = element_text(size = 8),
+    plot.margin = margin(10, 10, 50, 60),  # Extra bottom margin for bottom annotation
+    axis.text.x = element_text(size = 8, angle = -90, hjust = 0),
+    axis.text.y = element_text(size = 8)
+  )
+
+# Display the plot
+# print(allSelectedClustersInfo_sub_regions_annotated)
+
+# Method Used
+
+# The analysis performed in the previous chunk (lines 595‑957) follows these main steps:
+# 
+# 1. **Filter monoclonal samples** – select samples with `fws >= 0.95` to retain high‑confidence monoclonal isolates.
+# 2. **Identify high‑diversity loci** – compute allele diversity per locus and keep loci where the proportion of multi‑allelic samples (`prop_multi`) is ≥ 0.5.
+# 3. **Merge unique clusters** – combine the two sets of unique clusters (`unique_1_cluster` and `unique_2_cluster`), rename them sequentially, and create a unified cluster ordering.
+# 4. **Cluster samples** – build a haplotype matrix, perform hierarchical clustering (`ward.D2`), and derive a sample order based on the dendrogram.
+# 5. **Prepare metadata** – order the sample metadata by cluster and sample order, and add annotation fields (site, HRP deletion status, cluster).
+# 6. **Generate rainbow plot** – use `HaplotypeRainbows::genRainbowHapPlotObj` and `add_haplotype_rainbow_axis_theming` to create the base plot, then add custom annotations for site, HRP status, and cluster using `ggnewscale` and `geom_rect`.
+# 7. **Finalize plot** – adjust axis themes, legend placement, and margins, then display the plot with `print()`.
+# 
+# The optional `ggsave` call (commented out) can be used to export the annotated plot to a PDF file.
+
+# Optional: Save the plot
+# ggsave("rainbow_plot_with_annotations.pdf", 
+#        allSelectedClustersInfo_sub_regions_annotated,
+#        width = 14, height = 10, dpi = 300)
+```
+## Display combined unique-cluster plot
+
+This chunk displays the combined unique-cluster chromosome 11 rainbow plot in the report. It is intended as the main visual summary for comparing cluster-defined sample groups across the retained chromosome 11 haplotype regions and their sample-level annotations.
+
+```{r}
+#| fig-width: 20
+#| fig-height: 20
+
+print(allSelectedClustersInfo_sub_regions_annotated, merge_legends = T, background = "transparent")
+```
+## Save combined unique-cluster plot
+
+This chunk exports the combined unique-cluster annotated rainbow plot to PDF. The larger PDF dimensions are used to preserve readability of the cluster-ordered samples and the chromosome 11 target annotations.
+
+```{r}
+cairo_pdf("output/figures/duplicate_chr11_unique2$1_diverse_combine_test.pdf", width = 30, height = 20)
+print(allSelectedClustersInfo_sub_regions_annotated)
+dev.off()
+```
+## Download combined unique-cluster plot
+
+This chunk adds the download link for the combined unique-cluster annotated PDF. The link provides access to the exported high-resolution figure from the rendered report.
+
+```{r}
+#| echo: false
+#| results: asis
+
+cat(createDownloadLink("output/figures/duplicate_chr11_unique2$1_diverse_combine_test.pdf"))
+```
+
+## Full chromosome 11 region plot for monoclonal samples
+
+This chunk expands the visualization from selected post-PF3D7_11 regions to all chromosome 11 subregions available in the PathWeaver output. It keeps monoclonal samples using the same `fws >= 0.95` threshold, standardizes sample names across metadata and haplotype calls, clusters samples by chromosome 11 haplotype presence/absence with Ward's method, and orders them by HRP deletion status and site. The plot adds side annotations for site, HRP deletion status, and continuous FWS values, plus a bottom annotation showing the gene or intergenic label for each chromosome 11 target window.
+
+```{r}
+#| echo: false
+# script used for plotting all of the chromosome 11 region and all of the samples so i need to annotate the samples without using a cluster 
+add_haplotype_rainbow_axis_theming <-function(rainbow_plot, prepped_allele_data, target_col = "p_name", sample_col = "s_Sample"){
+  return(rainbow_plot + 
+           # scale_x_continuous(
+           #   labels = levels(prepped_allele_data[[target_col]]),
+           #   breaks = 1:n_distinct(levels(prepped_allele_data[[target_col]])),
+           #   expand = c(0,0)
+           # ) +
+           scale_y_continuous(
+             labels = levels(prepped_allele_data[[sample_col]]), 
+             breaks = 1:n_distinct(levels(prepped_allele_data[[sample_col]])), 
+             expand = c(0,0)
+           ) + 
+           theme(axis.text.y = element_text(family = "mono"), 
+                 axis.text.x = element_text(family = "mono", angle = -90, hjust = 0)))
+}
+
+# preparing the hrp3 deleted sample 
+sample_meta_with_hrp2_3_calls <- readr::read_tsv("input/sample_meta_with_hrp2_3_calls.tsv") %>% 
+  mutate(Sample = gsub("_S[0-9]+$", "", Sample))  %>% 
+  mutate(Sample = gsub("-D0", "_D0", Sample)) %>% 
+  mutate(Sample = gsub("NG-A4488_", "", Sample)) %>% 
+  mutate(Sample = gsub("_libLAN[0-9]+", "", Sample))
+monoclonal_samples <- sample_meta_with_hrp2_3_calls%>%
+  filter(fws >= 0.95)
+hrp3_deleted <- sample_meta_with_hrp2_3_calls%>%
+  filter(grepl("/hrp3-",hrp_deletion_call))
+
+
+allBasicInfo <- read_tsv("input/all_result_q20/PathWeaverResults/reports/populationClustering/reports/allBasicInfo.tab.txt.gz")
+allBasicInfo_sel = allBasicInfo %>% 
+  mutate(Sample = gsub("_S[0-9]+$", "", sample))  %>% 
+  mutate(Sample = gsub("-D0", "_D0", Sample)) %>% 
+  mutate(Sample = gsub("NG-A4488_", "", Sample)) %>% 
+  mutate(sample = gsub("_libLAN[0-9]+", "", Sample)) %>% 
+  mutate(region_name = paste0(`#chrom`, "-", start, "-", end)) %>% 
+  select(region_name, sample, perBaseCoverage) %>% 
+  mutate(perBaseCoverage = log10(perBaseCoverage + 1)) %>% 
+  spread(region_name, perBaseCoverage)
+regions_sub_regions_meta = readr::read_tsv("input/all_result_q20/PathWeaverResults/subVarRegions/regions/bed_withGeneInfo.tsv")
+
+regions_sub_regions_meta_chr11_after_pf332 = regions_sub_regions_meta %>% 
+  filter(`#chrom` == "Pf3D7_11_v3") 
+# regions <- read_tsv("C:/Users/ahri2/Desktop/Desktop_2/files/download/Analysis_Surrounding_HRP2_3_deletions/DeletionPatternAnalysis/subwindows_regionMeta.tab.txt")
+# 
+# regions_afterHomologous_chr11 = regions %>% 
+#   filter(`#chrom` == "Pf3D7_11_v3", 
+#          afterHomologousRegion)# mutate(name=str_replace(name,"-f.*",""))
+# regions_afterHomologous_chr11 = regions_afterHomologous_chr11 %>% 
+#   mutate(description = case_when(
+#     grepl("extraField0=NA", extraField0) ~ "intergenic", 
+#     T ~ gsub("\\]", "", gsub(".*description=", "", extraField0))
+#   )  )
+# regions_afterHomologous_chr11_filt = regions %>% 
+#   filter(name %in% allSelectedClustersInfo_sub_regions_prep$p_name) %>% 
+#   mutate(genomicID = factor(genomicID, levels = levels(allSelectedClustersInfo_sub_regions_prep$p_name)))
+
+
+allSelectedClustersInfo_sub_regions = readr::read_tsv("input/all_result_q20/PathWeaverResults/subVarRegions/PathWeaverResults/reports/populationClustering/reports/allSelectedClustersInfo.tab.txt.gz") %>%
+  mutate(Sample = gsub("_S[0-9]+$", "", s_Sample))  %>% 
+  mutate(Sample = gsub("-D0", "_D0", Sample)) %>% 
+  mutate(Sample = gsub("NG-A4488_", "", Sample)) %>% 
+  mutate(s_Sample = gsub("_libLAN[0-9]+", "", Sample)) %>% 
+  filter(s_Sample %in% unique(allBasicInfo_sel$sample))
+print(length(unique(allSelectedClustersInfo_sub_regions$s_Sample)))
+
+allSelectedClustersInfo_sub_regions_chr11_after_pf332 =
+  allSelectedClustersInfo_sub_regions %>%
+  filter(
+    p_name %in% regions_sub_regions_meta_chr11_after_pf332$name,
+    # s_Sample %in% hrp3_deleted$Sample,
+    s_Sample %in% monoclonal_samples$Sample
+  )
+
+allSelectedClustersInfo_sub_regions_chr11_after_pf332_sp = allSelectedClustersInfo_sub_regions_chr11_after_pf332 %>% 
+  select(s_Sample, h_popUID) %>% 
+  unique() %>% 
+  mutate(marker = 1) %>% 
+  spread(h_popUID, marker, fill = 0)
+allSelectedClustersInfo_sub_regions_chr11_after_pf332_sp_mat = as.matrix(allSelectedClustersInfo_sub_regions_chr11_after_pf332_sp[,2:ncol(allSelectedClustersInfo_sub_regions_chr11_after_pf332_sp)])
+rownames(allSelectedClustersInfo_sub_regions_chr11_after_pf332_sp_mat) = allSelectedClustersInfo_sub_regions_chr11_after_pf332_sp$s_Sample
+allSelectedClustersInfo_sub_regions_chr11_after_pf332_sp_hclust = hclust(dist(allSelectedClustersInfo_sub_regions_chr11_after_pf332_sp_mat), method = "ward.D2")
+
+chr11_sample_order = tibble(
+  s_Sample = rownames(allSelectedClustersInfo_sub_regions_chr11_after_pf332_sp_mat)[allSelectedClustersInfo_sub_regions_chr11_after_pf332_sp_hclust$order] 
+)
+
+allSelectedClustersInfo_sub_regions_prep = HaplotypeRainbows::prepForRainbow(allSelectedClustersInfo_sub_regions_chr11_after_pf332)
+ 
+sample_meta_forcluster_data_order = sample_meta_with_hrp2_3_calls %>% 
+  filter(Sample %in% allSelectedClustersInfo_sub_regions_chr11_after_pf332$s_Sample) %>% 
+  mutate(hrp_deletion_call = factor(hrp_deletion_call, c("hrp2+/hrp3+", "hrp2-/hrp3+", "hrp2-/hrp3-", "hrp2+/hrp3-"))) %>% 
+  left_join(chr11_sample_order,by=c("Sample"="s_Sample")) %>% 
+  arrange(hrp_deletion_call,site)%>% 
+    mutate(chr11_order = 1:nrow(.))
+
+
+
+
+allSelectedClustersInfo_sub_regions_prep = allSelectedClustersInfo_sub_regions_prep %>% 
+  mutate(s_Sample = factor(s_Sample, 
+         levels = intersect(sample_meta_forcluster_data_order$Sample, s_Sample)))
+
+print(length(unique(allSelectedClustersInfo_sub_regions_prep$s_Sample)))
+
+allSelectedClustersInfo_sub_regions_plot = HaplotypeRainbows::genRainbowHapPlotObj(allSelectedClustersInfo_sub_regions_prep) %>% 
+  add_haplotype_rainbow_axis_theming(allSelectedClustersInfo_sub_regions_prep)
+
+bottom_annotation_data <- allSelectedClustersInfo_sub_regions_prep %>%
+  select(p_name) %>%
+  distinct() %>%
+  mutate(
+    p_name_numeric = as.numeric(factor(p_name, levels = levels(allSelectedClustersInfo_sub_regions_prep$p_name))),
+    target = "Chr11_diverse_region"
+  ) %>% 
+  left_join(regions_sub_regions_meta_chr11_after_pf332 %>% select(name,Name) ,by=c("p_name"="name"))
+
+bottom_annotation_data$Name[is.na(bottom_annotation_data$Name)] <- "intergenic"
+# Get unique targets and assign colors
+unique_target <- sort(unique(bottom_annotation_data$Name))
+target_colors <- setNames(
+  colorRampPalette(brewer.pal(8, "Set3"))(length(unique_target)),
+  unique_target
+)
+
+sample_order <- levels(allSelectedClustersInfo_sub_regions_prep$s_Sample)
+
+annotation_data <- sample_meta_forcluster_data_order %>%
+  filter(Sample %in% sample_order) %>%
+  mutate(
+    y_position = as.numeric(
+      factor(Sample, levels = sample_order)
+    )
+  )
+
+# Get unique values from your data
+unique_sites <- sort(unique(annotation_data$site))
+site_colors <- setNames(
+  colorRampPalette(brewer.pal(8, "Set2"))(length(unique_sites)),
+  unique_sites
+)
+
+unique_hrp <- sort(unique(annotation_data$hrp_deletion_call))
+hrp_colors <- setNames(
+  colorRampPalette(brewer.pal(4, "Set1"))(length(unique_hrp)),
+  unique_hrp
+)
+
+unique_clusters <- unique(annotation_data$fws)
+cluster_colors <- setNames(
+  colorRampPalette(brewer.pal(8, "Dark2"))(length(unique_clusters)),
+  unique_clusters
+)
+
+annotation_positions <- list(
+  site = c(0, -4),
+  hrp = c(-5, -9),
+  fws = c(-10, -14)
+)
+
+allSelectedClustersInfo_sub_regions_annotated <- allSelectedClustersInfo_sub_regions_plot +
+    ggnewscale::new_scale_fill() +
+  geom_rect(data = annotation_data,
+            aes(xmin = annotation_positions$site[1], 
+                xmax = annotation_positions$site[2],
+                ymin = y_position - 0.5, 
+                ymax = y_position + 0.5, 
+                fill = site),
+            color = "black", size = 0.1) +
+  scale_fill_manual("Site", values = site_colors,
+                    guide = guide_legend(nrow = 2, title.position = "top")) +
+
+  # Annotation 2: HRP deletion status
+  ggnewscale::new_scale_fill() +
+  geom_rect(data = annotation_data,
+            aes(xmin = annotation_positions$hrp[1], 
+                xmax = annotation_positions$hrp[2],
+                ymin = y_position - 0.5, 
+                ymax = y_position + 0.5, 
+                fill = hrp_deletion_call),
+            color = "black", size = 0.1) +
+  scale_fill_manual("HRP Status", values = hrp_colors,
+                    guide = guide_legend(nrow = 2, title.position = "top")) +
+    # Annotation 3: fws information
+  ggnewscale::new_scale_fill() +
+            geom_rect(
+            data = annotation_data,
+            aes(
+              xmin = annotation_positions$fws[1],
+              xmax = annotation_positions$fws[2],
+              ymin = y_position - 0.5,
+              ymax = y_position + 0.5,
+              fill = fws
+            ),
+            color = "black",
+            linewidth = 0.1
+          ) +
+          scale_fill_gradient(
+            name = "FWS",
+            low = "white",
+            high = "darkred"
+          )+
+  ggnewscale::new_scale_fill() +
+  geom_rect(data = bottom_annotation_data,
+            aes(xmin = p_name_numeric - 0.5,
+                xmax = p_name_numeric + 0.5,
+                ymax = 0,
+                ymin = -3,
+                fill = Name),
+            color = "black", size = 0.2) +
+  scale_fill_manual("Target Region", 
+                    values = target_colors,
+                    guide = guide_legend(nrow = 1, title.position = "top")) +
+  
+  # Adjust coordinate limits to show all annotations
+  coord_cartesian(xlim = c(-9, NA), ylim = c(-3.5, NA), clip = "off") +
+  
+  # Final theme adjustments
+  theme(
+    legend.position = "bottom",
+    legend.box = "vertical",
+    legend.margin = margin(t = 10, r = 0, b = 0, l = 0),
+    legend.title = element_text(size = 10, face = "bold"),
+    legend.text = element_text(size = 8),
+    plot.margin = margin(10, 10, 50, 60),  # Extra bottom margin for bottom annotation
+    axis.text.x = element_text(size = 8, angle = -90, hjust = 0),
+    axis.text.y = element_text(size = 8)
+  )
+  # print(allSelectedClustersInfo_sub_regions_annotated)
+cairo_pdf("output/figures/duplicate_region_chr11_all_region.pdf", width = 30, height = 15)
+print(allSelectedClustersInfo_sub_regions_annotated)
+dev.off()
+```
+## Download full chromosome 11 region plot
+
+This chunk adds a download link for the full chromosome 11 annotated rainbow plot PDF. This exported version is useful for inspecting the dense all-region figure outside the HTML page.
+
+```{r}
+#| echo: false
+#| results: asis
+
+cat(createDownloadLink("output/figures/duplicate_region_chr11_all_region.pdf"))
+```
+## Display full chromosome 11 region plot
+
+This chunk displays the full chromosome 11 annotated rainbow plot in the report. The large figure size is used because this view contains all available chromosome 11 subregions, many monoclonal samples, and multiple annotation tracks.
+
+```{r}
+#| fig-width: 20
+#| fig-height: 20
+
+print(allSelectedClustersInfo_sub_regions_annotated, merge_legends = T, background = "transparent")
+```
+
+

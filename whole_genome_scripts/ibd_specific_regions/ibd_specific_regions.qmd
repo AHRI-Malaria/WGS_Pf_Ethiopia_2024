@@ -1,0 +1,920 @@
+---
+title: "chr11_haplotype_structure"
+author: "Metmiku"
+date: "2026-05-12"
+---
+
+```{r,eval=F}
+source("common.R")
+# conda run -n HaplotypR --no-capture-output quarto render ibd_specific_regions.qmd --to html
+```
+```{r,eval=F}
+library(dplyr)
+library(tidyr)
+library(readr)
+supplementary <- readr::read_tsv("render_inputs/shared/supp_fws_up.tsv", col_names = TRUE)
+ethiopia_samples <- readr::read_tsv("render_inputs/shared/metadata_ethiopia.tsv",col_names = TRUE) |> 
+    # filter(Admin.level.1 %in% c("Gondar","Mizan","Metehera Fentale")) |>
+    select(sample) |> 
+    distinct()
+readr::write_tsv(ethiopia_samples,"ibd_specific_regions/data/ethiopia_only_samples.txt",col_names = FALSE)
+```
+one thing to notice here is that the fws result seems different from the one we compute the monoclonal samples here is 56 monoclonal samples and when we compute it with the momix it goes around 84 
+```{bash,eval=F}
+# eval "$(mamba shell hook --shell bash)" && mamba activate plasgenomicsutils
+# bcftools query -f '%CHROM\t%POS0\t%END\n' Ghana.bcf    > Ghana_snps.bed
+# bcftools query -f '%CHROM\t%POS0\t%END\n' Cambodia.bcf    > Cambodia_snps.bed
+# the first thing is to change the ethiopia vcf file in to 
+bcftools view -S ibd_specific_regions/data/ethiopia_only_samples.txt -Oz -o /home/metmiku/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/whole_genome_scripts/snps_in_ibd_analysis/ibd_specific_regions/data/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen.filt.csq.bi.GT.miss0.2.vqslod.filt.snps_ethiopia_only.vcf.gz  /home/metmiku/popgen_ethiopia_WGS/all_country_merged/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen.filt.csq.bi.GT.miss0.2.vqslod.filt.snps.vcf.gz
+
+bcftools index /home/metmiku/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/whole_genome_scripts/snps_in_ibd_analysis/ibd_specific_regions/data/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen.filt.csq.bi.GT.miss0.2.vqslod.filt.snps_ethiopia_only.vcf.gz
+
+bcftools view --output-type b --output-file /home/metmiku/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/whole_genome_scripts/snps_in_ibd_analysis/ibd_specific_regions/data/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen.filt.csq.bi.GT.miss0.2.vqslod.filt.snps_ethiopia_only.bcf /home/metmiku/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/whole_genome_scripts/snps_in_ibd_analysis/ibd_specific_regions/data/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen.filt.csq.bi.GT.miss0.2.vqslod.filt.snps_ethiopia_only.vcf.gz
+
+docker run -v /home/metmiku/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/whole_genome_scripts/snps_in_ibd_analysis/ibd_specific_regions:/data -u $(id -u):$(id -g) --rm hmmibd-rs:eppicenter hmmibd-rs -i  /data/data/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen.filt.csq.bi.GT.miss0.2.vqslod.filt.snps_ethiopia_only.bcf --from-bcf --bcf-read-mode dominant-allele -o /data/data/Ethiopia_hmm 
+
+bcftools query -f '%CHROM\t%POS0\t%END\n' /home/metmiku/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/whole_genome_scripts/snps_in_ibd_analysis/ibd_specific_regions/data/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen.filt.csq.bi.GT.miss0.2.vqslod.filt.snps_ethiopia_only.bcf    > ibd_specific_regions/data/ethiopia_snps.bed
+
+plasgenomicsutils ibd_fraction_and_snp_density \
+  --blocks /home/metmiku/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/whole_genome_scripts/snps_in_ibd_analysis/ibd_specific_regions/data/Ethiopia_hmm.hmm.txt \
+  --snps   ibd_specific_regions/data/ethiopia_snps.bed --snp-format bed \
+  --output ibd_specific_regions/output/Ethiopia_ibd_fraction
+
+
+# plasgenomicsutils ibd_fraction_and_snp_density \
+#   --blocks Cambodia_hmm.hmm.txt.gz \
+#   --snps   Cambodia_snps.bed --snp-format bed \
+#   --output Cambodia_ibd_fraction  
+  
+plasgenomicsutils calculate_fws \
+  --monoclonal-threshold 0.95 \
+  --input-vcf /home/metmiku/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/whole_genome_scripts/snps_in_ibd_analysis/ibd_specific_regions/data/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen.filt.csq.bi.GT.miss0.2.vqslod.filt.snps_ethiopia_only.bcf  \
+  --out Ethiopia_fws.tsv
+  
+
+# plasgenomicsutils calculate_fws \
+#   --monoclonal-threshold 0.90 \
+#   --input-vcf Ghana.bcf \
+#   --out Ghana_fws.tsv
+
+```
+
+```{r}
+library(dplyr)
+library(tidyr)
+library(readr)
+hrp_status_metadata <- read_tsv("render_inputs/shared/metadata_ethiopia.tsv")
+# View(hrp_status_metadata)
+
+px1_genotype_result <- read_tsv("render_inputs/shared/px1_genotype_result.tsv") |> 
+  select(Sample,"384",haplotype)
+seekdeep_result <- read_tsv("render_inputs/shared/seekdeep_results.tsv.gz")
+
+genes <- c("CRT", "PX1","Kelch13")
+
+gene_results <- list()
+
+for (gene in genes) {
+
+  gene_results[[gene]] <- seekdeep_result |>
+    filter(Gene == gene) |>
+    # arrange is_reference so reference allele is first when arranging
+    arrange(desc(is_reference)) |>
+    group_by(Sample, reference_AA_pos) |>
+    summarise(
+      # take the first reference_AA to avoid duplicate rows for overlapping references (e.g. position 1677 in PX1)
+      reference_AA = first(reference_AA),
+      # collapse unique AA alleles seen for this positioning
+      AA = paste0(unique(AA), collapse = "/"),
+      .groups = "drop"
+    ) |>
+    mutate(
+      aa_id = paste0(
+        reference_AA,
+        reference_AA_pos,
+        ifelse(reference_AA != AA, AA, "")
+      ),
+      gene_pos = paste0(
+        gene, "_",
+        stringr::str_pad(reference_AA_pos, pad = "0", width = 3)
+      )
+    ) |>
+    select(Sample, gene_pos, aa_id) |>
+    tidyr::pivot_wider(
+      names_from = gene_pos,
+      values_from = aa_id
+    )
+}
+
+CRT_df <- gene_results$CRT
+PX1_df <- gene_results$PX1
+Kelch13_df <- gene_results$Kelch13
+
+
+
+hap_countries <- c("Ethiopia", "Eritrea", "Uganda")
+
+# samples with a SeekDeep call for each gene, so "no mutation row" can be read as wild type rather than missing data
+kelch13_assayed <- seekdeep_result |> filter(Gene == "Kelch13", Country %in% hap_countries) |> distinct(Sample)
+CRT_assayed     <- seekdeep_result |> filter(Gene == "CRT",     Country %in% hap_countries) |> distinct(Sample)
+PX1_assayed     <- seekdeep_result |> filter(Gene == "PX1",     Country %in% hap_countries) |> distinct(Sample)
+
+kelch13_mutant_only <- seekdeep_result |> 
+  filter(Gene == "Kelch13",is_reference == "FALSE", Country %in% hap_countries) |>
+  # filter(reference_AA_pos %in% c(622, 675, 680)) |>
+  select(Sample, reference_AA_pos,reference_AA, AA) |>
+  mutate(k13_mutation_hap = paste0("K13_", reference_AA_pos, "_", reference_AA,"/",AA)) |>
+  group_by(Sample) |> 
+  summarise(
+    k13_mutation_hap = paste(k13_mutation_hap, collapse = "; "),
+    .groups = "drop"
+  ) |> 
+  right_join(kelch13_assayed, by = "Sample") |> 
+  mutate(k13_mutation_hap = tidyr::replace_na(k13_mutation_hap, "WT"))
+
+CRT_mutant_only <- seekdeep_result |> 
+  filter(Gene == "CRT",is_reference == "FALSE", Country %in% hap_countries) |>
+  select(Sample, reference_AA_pos,reference_AA, AA) |>
+  mutate(crt_mutation_hap = paste0("CRT_", reference_AA_pos, "_", reference_AA,"/",AA)) |>
+  group_by(Sample) |> 
+  summarise(
+    crt_mutation_hap = paste(crt_mutation_hap, collapse = "; "),
+    .groups = "drop"
+  ) |> 
+  right_join(CRT_assayed, by = "Sample") |> 
+  mutate(crt_mutation_hap = tidyr::replace_na(crt_mutation_hap, "WT"))
+
+PX1_mutant_only <- seekdeep_result |> 
+  filter(Gene == "PX1",is_reference == "FALSE", Country %in% hap_countries) |>
+  select(Sample, reference_AA_pos,reference_AA, AA) |>
+  mutate(px1_mutation_hap = paste0("PX1_", reference_AA_pos, "_", reference_AA,"/",AA)) |>
+  group_by(Sample) |> 
+  summarise(
+    px1_mutation_hap = paste(px1_mutation_hap, collapse = "; "),
+    .groups = "drop"
+  ) |> 
+  right_join(PX1_assayed, by = "Sample") |> 
+  mutate(px1_mutation_hap = tidyr::replace_na(px1_mutation_hap, "WT"))
+
+# samples with no SeekDeep call at all for a gene stay distinct from wild type in the plot legends
+hap_cols <- c("k13_mutation_hap", "crt_mutation_hap", "px1_mutation_hap")
+label_ungenotyped <- function(df) {
+  dplyr::mutate(df, dplyr::across(dplyr::any_of(hap_cols), ~ tidyr::replace_na(.x, "NA")))
+}
+```
+
+
+```{bash}
+which R
+```
+```{r}
+#| label: ethiopia-ibd-compute
+# install.packages("remotes")
+# remotes::install_github("nickjhathaway/plasgenomicsutilsR")
+library(plasgenomicsutilsR)
+library(dplyr, help, pos = 2, lib.loc = NULL)
+library(tidyr)
+library(ggraph, help, pos = 2, lib.loc = NULL)
+library(ggplot2)
+
+# Plot paths below were written relative to the parent directory. Quarto runs
+# chunks from this project's root, so save them inside this project instead.
+save_plot <- function(path, ...) {
+  path <- sub("^ibd_specific_regions/", "", path)
+  dir.create(dirname(path), recursive = TRUE, showWarnings = FALSE)
+  plasgenomicsutilsR::save_plot(path, ...)
+}
+
+# Add compound helper columns to combine Site and genomic/deletion statuses
+hrp_status_metadata <- hrp_status_metadata %>%
+  # left_join(px1_genotype_result, by = c("sample" = "Sample")) %>%
+  left_join(CRT_df, by = c("sample" = "Sample")) %>%
+  left_join(PX1_df, by = c("sample" = "Sample")) %>%
+  left_join(Kelch13_df, by = c("sample" = "Sample")) |> 
+  mutate(Polyclonal = ifelse(fws >= 0.95, "Monoclonal", "Polyclonal")) |> 
+  left_join(px1_genotype_result, by = c("sample" = "Sample")) |> 
+  left_join(kelch13_mutant_only, by = c("sample" = "Sample")) |> 
+  left_join(CRT_mutant_only, by = c("sample" = "Sample")) |> 
+  left_join(PX1_mutant_only, by = c("sample" = "Sample")) |> 
+  label_ungenotyped() |> 
+  # compound column used for the "Site_cviet" shape grouping below
+  mutate(Site_cviet = paste(Site, cviet_group, sep = " - "))
+
+k13_poly_remove <- hrp_status_metadata |> 
+  filter(Kelch13_622 != "R622R/I")
+Ethiopia_ibd_results_poly_kelch622remo <- ibd_results(
+  blocks          = file.path("render_inputs/ethiopia/Ethiopia_hmm.hmm.txt"),
+  pair_fraction   = file.path("render_inputs/ethiopia/Ethiopia_ibd_fraction.pair_ibd_fraction.tsv.gz"),
+  meta            = k13_poly_remove,
+  genes           = PF_EXAMPLE_DRUG_GENES,   # pfcrt, pfdhfr, pfmdr1, pfdhps, pfkelch13, pfaat1, pfgch1, pfpx1
+  reference       = "pf3d7"
+)
+Ethiopia_pfkelch13_ibd_plot_kelch_mutation_hap_poly_remove = Ethiopia_ibd_results_poly_kelch622remo$plot_ibd_network(gene = "pfkelch13", 
+                                                          sharing = "complete", 
+                                                          shape_group = "Country",
+                                                          color_group = "Kelch13_622",
+                                                          include_isolated = T)
+save_plot("figures/Ethiopia_pfkelch13_Kelch13_622_poly_remove_ibd_plot.pdf", Ethiopia_pfkelch13_ibd_plot_kelch_mutation_hap_poly_remove)
+
+
+Ethiopia_ibd_results <- ibd_results(
+  blocks          = file.path("render_inputs/ethiopia/Ethiopia_hmm.hmm.txt"),
+  pair_fraction   = file.path("render_inputs/ethiopia/Ethiopia_ibd_fraction.pair_ibd_fraction.tsv.gz"),
+  meta            = hrp_status_metadata,
+  genes           = PF_EXAMPLE_DRUG_GENES,   # pfcrt, pfdhfr, pfmdr1, pfdhps, pfkelch13, pfaat1, pfgch1, pfpx1
+  reference       = "pf3d7"
+)
+
+# getanyWhere(Ethiopia_ibd_results)
+
+# 1. Genome-wide IBD Network colored by Site
+Ethiopia_whole_genome_ibd_plot = Ethiopia_ibd_results$plot_ibd_pair_network(min_ibd = 0.03, color_group = "Site", shape_group = "Year")
+save_plot("ibd_specific_regions/figures/Ethiopia_whole_genome_ibd_plot.pdf", Ethiopia_whole_genome_ibd_plot)
+
+# 2. original pfcrt network color group = k13_mutation, shape group = cviet_group
+Ethiopia_pfcrt_ibd_plot = Ethiopia_ibd_results$plot_ibd_network(gene = "pfcrt", 
+                                                          sharing = "complete", 
+                                                          shape_group = "cviet_group",
+                                                          color_group = "k13_mutation",
+                                                          include_isolated = T)
+save_plot("ibd_specific_regions/figures/Ethiopia_pfcrt_ibd_plot.pdf", Ethiopia_pfcrt_ibd_plot)
+
+# 3. pfcrt network colored by Site
+Ethiopia_pfcrt_by_site_ibd_plot = Ethiopia_ibd_results$plot_ibd_network(gene = "pfcrt", 
+                                                          sharing = "complete", 
+                                                          shape_group = "cviet_group",
+                                                          color_group = "Site",
+                                                          include_isolated = T)
+save_plot("ibd_specific_regions/figures/Ethiopia_pfcrt_by_site_ibd_plot.pdf", Ethiopia_pfcrt_by_site_ibd_plot)
+
+# 4. pfcrt network with compound shape matching (Site + Cviet Group) and color (k13_mutation)
+Ethiopia_pfcrt_compound_ibd_plot = Ethiopia_ibd_results$plot_ibd_network(gene = "pfcrt", 
+                                                          sharing = "complete", 
+                                                          shape_group = "Site_cviet",
+                                                          color_group = "k13_mutation",
+                                                          include_isolated = T)
+save_plot("ibd_specific_regions/figures/Ethiopia_pfcrt_compound_ibd_plot.pdf", Ethiopia_pfcrt_compound_ibd_plot)
+
+Ethiopia_pfcrt_px1_ibd_plot = Ethiopia_ibd_results$plot_ibd_network(gene = "pfcrt", 
+                                                          sharing = "complete", 
+                                                          shape_group = "cviet_group",
+                                                          color_group = "haplotype",
+                                                          include_isolated = T)
+save_plot("ibd_specific_regions/figures/Ethiopia_pfcrt_px1_ibd_plot.pdf", Ethiopia_pfcrt_px1_ibd_plot)
+
+# NOTE: renamed the two duplicate "Ethiopia_pfkelch13_ibd_plot" variables and the
+# three duplicate "Ethiopia_px1_ibd_plot" variables below so each plot survives
+# with its own name and can be printed individually further down.
+Ethiopia_pfkelch13_cviet_ibd_plot = Ethiopia_ibd_results$plot_ibd_network(gene = "pfkelch13", 
+                                                          sharing = "complete", 
+                                                          shape_group = "k13_mutation",
+                                                          color_group = "cviet_group",
+                                                          include_isolated = T)
+save_plot("ibd_specific_regions/figures/Ethiopia_pfkelch13_cviet_ibd_plot.pdf", Ethiopia_pfkelch13_cviet_ibd_plot)
+
+Ethiopia_pfkelch13_ibd_plot_kelch_mutation_hap = Ethiopia_ibd_results$plot_ibd_network(gene = "pfkelch13", 
+                                                          sharing = "complete", 
+                                                          shape_group = "Country",
+                                                          color_group = "k13_mutation_hap",
+                                                          include_isolated = T)
+save_plot("ibd_specific_regions/figures/Ethiopia_pfkelch13_kelch_mutation_hap_ibd_plot.pdf", Ethiopia_pfkelch13_ibd_plot_kelch_mutation_hap)
+
+Ethiopia_pfkelch13_polyclonal_ibd_plot = Ethiopia_ibd_results$plot_ibd_network(gene = "pfkelch13", 
+                                                          sharing = "complete", 
+                                                          shape_group = "k13_mutation",
+                                                          color_group = "Polyclonal",
+                                                          include_isolated = T)
+save_plot("ibd_specific_regions/figures/Ethiopia_pfkelch13_polyclonal_ibd_plot.pdf", Ethiopia_pfkelch13_polyclonal_ibd_plot)
+
+Ethiopia_hrp_deletion_ibd_plot = Ethiopia_ibd_results$plot_ibd_network(gene = "pfcrt", 
+                                                          sharing = "complete", 
+                                                          shape_group = "cviet_group",
+                                                          color_group = "hrp_status",
+                                                          include_isolated = T)
+save_plot("ibd_specific_regions/figures/Ethiopia_hrp_deletion_cviet_ibd_plot.pdf", Ethiopia_hrp_deletion_ibd_plot)
+
+Ethiopia_px1_cviet_ibd_plot = Ethiopia_ibd_results$plot_ibd_network(gene = "pfpx1", 
+                                                          sharing = "complete", 
+                                                          shape_group = "cviet_group",
+                                                          color_group = "haplotype",
+                                                          include_isolated = T)
+save_plot("ibd_specific_regions/figures/Ethiopia_px1_cviet_ibd_plot.pdf", Ethiopia_px1_cviet_ibd_plot)
+
+Ethiopia_px1_ibd_plot_poly = Ethiopia_ibd_results$plot_ibd_network(gene = "pfpx1", 
+                                                          sharing = "overlap", 
+                                                          shape_group = "Polyclonal",
+                                                          color_group = "haplotype",
+                                                          include_isolated = T)
+save_plot("ibd_specific_regions/figures/Ethiopia_px1_polyclonal_overlap_ibd_plot.pdf", Ethiopia_px1_ibd_plot_poly)
+
+Ethiopia_px1_k13_mutation_ibd_plot = Ethiopia_ibd_results$plot_ibd_network(gene = "pfpx1", 
+                                                          sharing = "complete", 
+                                                          shape_group = "k13_mutation",
+                                                          color_group = "haplotype",
+                                                          include_isolated = T)
+save_plot("ibd_specific_regions/figures/Ethiopia_px1_k13_mutation_ibd_plot.pdf", Ethiopia_px1_k13_mutation_ibd_plot)
+
+Ethiopia_pfkelch13_px1_mutation_ibd_plot = Ethiopia_ibd_results$plot_ibd_network(gene = "pfkelch13", 
+                                                          sharing = "complete", 
+                                                          shape_group = "k13_mutation",
+                                                          color_group = "haplotype",
+                                                          include_isolated = T)
+save_plot("ibd_specific_regions/figures/Ethiopia_pfkelch13_px1_mutation_ibd_plot.pdf", Ethiopia_pfkelch13_px1_mutation_ibd_plot)
+
+# pfcrt network colored by the CRT mutation haplotype
+Ethiopia_pfcrt_mutation_hap_ibd_plot = Ethiopia_ibd_results$plot_ibd_network(gene = "pfcrt", 
+                                                          sharing = "complete", 
+                                                          shape_group = "cviet_group",
+                                                          color_group = "crt_mutation_hap",
+                                                          include_isolated = T)
+save_plot("ibd_specific_regions/figures/Ethiopia_pfcrt_mutation_hap_ibd_plot.pdf", Ethiopia_pfcrt_mutation_hap_ibd_plot)
+
+# pfpx1 network colored by the PX1 mutation haplotype
+Ethiopia_px1_mutation_hap_ibd_plot = Ethiopia_ibd_results$plot_ibd_network(gene = "pfpx1", 
+                                                          sharing = "complete", 
+                                                          shape_group = "cviet_group",
+                                                          color_group = "px1_mutation_hap",
+                                                          include_isolated = T)
+save_plot("ibd_specific_regions/figures/Ethiopia_px1_mutation_hap_ibd_plot.pdf", Ethiopia_px1_mutation_hap_ibd_plot)
+```
+
+```{r}
+#| fig-width: 5
+#| fig-height: 5
+#| out-width: 60%
+print(Ethiopia_whole_genome_ibd_plot, merge_legends = TRUE, background = "transparent")
+```
+
+```{r}
+#| fig-width: 5
+#| fig-height: 5
+#| out-width: 60%
+print(Ethiopia_pfcrt_ibd_plot, merge_legends = TRUE, background = "transparent")
+```
+
+```{r}
+#| fig-width: 5
+#| fig-height: 5
+#| out-width: 60%
+print(Ethiopia_pfcrt_by_site_ibd_plot, merge_legends = TRUE, background = "transparent")
+```
+
+```{r}
+#| fig-width: 5
+#| fig-height: 5
+#| out-width: 60%
+print(Ethiopia_pfcrt_compound_ibd_plot, merge_legends = TRUE, background = "transparent")
+```
+
+```{r}
+#| fig-width: 5
+#| fig-height: 5
+#| out-width: 60%
+print(Ethiopia_pfcrt_px1_ibd_plot, merge_legends = TRUE, background = "transparent")
+```
+
+```{r}
+#| fig-width: 5
+#| fig-height: 5
+#| out-width: 60%
+print(Ethiopia_pfkelch13_cviet_ibd_plot, merge_legends = TRUE, background = "transparent")
+```
+
+```{r}
+#| fig-width: 5
+#| fig-height: 5
+#| out-width: 60%
+print(Ethiopia_pfkelch13_ibd_plot_kelch_mutation_hap, merge_legends = TRUE, background = "transparent")
+```
+
+```{r}
+#| fig-width: 5
+#| fig-height: 5
+#| out-width: 60%
+print(Ethiopia_pfkelch13_polyclonal_ibd_plot, merge_legends = TRUE, background = "transparent")
+```
+
+```{r}
+#| fig-width: 5
+#| fig-height: 5
+#| out-width: 60%
+print(Ethiopia_hrp_deletion_ibd_plot, merge_legends = TRUE, background = "transparent")
+```
+
+```{r}
+#| fig-width: 5
+#| fig-height: 5
+#| out-width: 60%
+print(Ethiopia_px1_cviet_ibd_plot, merge_legends = TRUE, background = "transparent")
+```
+
+```{r}
+#| fig-width: 5
+#| fig-height: 5
+#| out-width: 60%
+print(Ethiopia_px1_ibd_plot_poly, merge_legends = TRUE, background = "transparent")
+```
+
+```{r}
+#| fig-width: 5
+#| fig-height: 5
+#| out-width: 60%
+print(Ethiopia_px1_k13_mutation_ibd_plot, merge_legends = TRUE, background = "transparent")
+```
+
+```{r}
+#| fig-width: 5
+#| fig-height: 5
+#| out-width: 60%
+print(Ethiopia_pfkelch13_px1_mutation_ibd_plot, merge_legends = TRUE, background = "transparent")
+```
+
+```{r}
+#| fig-width: 5
+#| fig-height: 5
+#| out-width: 60%
+print(Ethiopia_pfcrt_mutation_hap_ibd_plot, merge_legends = TRUE, background = "transparent")
+```
+
+```{r}
+#| fig-width: 5
+#| fig-height: 5
+#| out-width: 60%
+print(Ethiopia_px1_mutation_hap_ibd_plot, merge_legends = TRUE, background = "transparent")
+```
+
+
+```{r,eval=F}
+library(SeqArray)
+Ethiopia_geno_index_all <- load_genotypes("/home/metmiku/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/whole_genome_scripts/snps_in_ibd_analysis/ibd_specific_regions/data/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen.filt.csq.bi.GT.miss0.2.vqslod.filt.snps_ethiopia_only.vcf.gz", gds = "/home/metmiku/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/whole_genome_scripts/snps_in_ibd_analysis/ibd_specific_regions/data/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen.filt.csq.bi.GT.miss0.2.vqslod.filt.snps_ethiopia_only.gds", prune = FALSE, variants = "all", encoding = "allele_set")
+
+ps_Ethiopia <- PopStructure$new(Ethiopia_geno_index_all, meta = Ethiopia_ibd_results$get_meta())
+Ethiopia_fws <- readr::read_tsv("ibd_specific_regions/outputEthiopia_fws.tsv", col_names = TRUE)
+hap_Ethiopia <- parasite_haplotypes(
+  Ethiopia_geno_index_all, meta = hrp_status_metadata,
+  fws = Ethiopia_fws, min_fws = 0.90, maf = 0.01)
+
+
+```
+
+---
+# 5. Combined Ethiopia & Eritrea Shared IBD Analysis
+---
+
+```{r,eval=F}
+# 5.1 Extract Ethiopian and Eritrean sample IDs from supplementary TSV
+supp_fws_up <- readr::read_tsv("render_inputs/shared/supp_fws_up.tsv", col_names = TRUE)
+
+eth_eri_samples <- supp_fws_up |> 
+    filter(Country %in% c("Ethiopia", "Eritrea")) |>
+    select(sample_id) |> 
+    distinct()
+
+# Create target directories
+dir.create("ibd_specific_regions/data_ethiopia_eritrea", showWarnings = FALSE, recursive = TRUE)
+dir.create("ibd_specific_regions/output_ethiopia_eritrea", showWarnings = FALSE, recursive = TRUE)
+dir.create("ibd_specific_regions/figures_ethiopia_eritrea", showWarnings = FALSE, recursive = TRUE)
+
+# Write the sample list for bcftools extraction
+readr::write_tsv(eth_eri_samples, "ibd_specific_regions/data_ethiopia_eritrea/eth_eri_samples.txt", col_names = FALSE)
+```
+
+```{bash,eval=F}
+# 5.2 Extract the combined Ethiopia and Eritrea samples and run hmmIBD
+# Filter samples from the main country-merged population snp VCF
+bcftools view -S ibd_specific_regions/data_ethiopia_eritrea/eth_eri_samples.txt -Oz -o ibd_specific_regions/data_ethiopia_eritrea/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen.filt.csq.bi.GT.miss0.2.vqslod.filt.snps_eth_eri_only.vcf.gz /home/metmiku/popgen_ethiopia_WGS/all_country_merged/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen.filt.csq.bi.GT.miss0.2.vqslod.filt.snps.vcf.gz
+
+# Index the extracted VCF
+bcftools index ibd_specific_regions/data_ethiopia_eritrea/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen.filt.csq.bi.GT.miss0.2.vqslod.filt.snps_eth_eri_only.vcf.gz
+
+# Convert VCF file to BCF file format
+bcftools view --output-type b --output-file ibd_specific_regions/data_ethiopia_eritrea/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen.filt.csq.bi.GT.miss0.2.vqslod.filt.snps_eth_eri_only.bcf ibd_specific_regions/data_ethiopia_eritrea/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen.filt.csq.bi.GT.miss0.2.vqslod.filt.snps_eth_eri_only.vcf.gz
+
+# Index the BCF file
+bcftools index ibd_specific_regions/data_ethiopia_eritrea/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen.filt.csq.bi.GT.miss0.2.vqslod.filt.snps_eth_eri_only.bcf
+
+# Run hmmibd-rs inside Docker in dominant-allele read mode
+docker run -v /home/metmiku/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/whole_genome_scripts/snps_in_ibd_analysis/ibd_specific_regions:/data -u $(id -u):$(id -g) --rm hmmibd-rs:eppicenter hmmibd-rs -i /data/data_ethiopia_eritrea/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen.filt.csq.bi.GT.miss0.2.vqslod.filt.snps_eth_eri_only.bcf --from-bcf --bcf-read-mode dominant-allele -o /data/data_ethiopia_eritrea/eth_eri_hmm
+
+# Extract SNP Bed coordinates
+bcftools query -f '%CHROM\t%POS0\t%END\n' ibd_specific_regions/data_ethiopia_eritrea/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen.filt.csq.bi.GT.miss0.2.vqslod.filt.snps_eth_eri_only.bcf > ibd_specific_regions/data_ethiopia_eritrea/eth_eri_snps.bed
+
+# Compute IBD Fraction and SNP Density for Ethiopia + Eritrea
+plasgenomicsutils ibd_fraction_and_snp_density \
+  --blocks ibd_specific_regions/data_ethiopia_eritrea/eth_eri_hmm.hmm.txt \
+  --snps   ibd_specific_regions/data_ethiopia_eritrea/eth_eri_snps.bed --snp-format bed \
+  --output ibd_specific_regions/output_ethiopia_eritrea/eth_eri_ibd_fraction
+
+# Compute Fws metric across the merged sets
+plasgenomicsutils calculate_fws \
+  --monoclonal-threshold 0.95 \
+  --input-vcf ibd_specific_regions/data_ethiopia_eritrea/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen.filt.csq.bi.GT.miss0.2.vqslod.filt.snps_eth_eri_only.bcf \
+  --out ibd_specific_regions/output_ethiopia_eritrea/eth_eri_fws.tsv
+```
+
+```{r}
+# 5.3 Combined IBD Networks & Genotypic Visualizations
+library(plasgenomicsutilsR)
+library(dplyr)
+library(tidyverse)
+library(ggraph)
+library(ggplot2)
+
+supp_fws_up <- readr::read_tsv("render_inputs/shared/supp_fws_up.tsv", col_names = TRUE)
+
+# Load combined metadata and join with SeekDeep genotypes
+eth_eri_metadata <- supp_fws_up %>%
+  filter(Country %in% c("Ethiopia", "Eritrea")) %>%
+  rename(sample = sample_id) %>%
+  left_join(CRT_df, by = c("sample" = "Sample")) %>%
+  left_join(PX1_df, by = c("sample" = "Sample")) %>%
+  left_join(Kelch13_df, by = c("sample" = "Sample")) |> 
+  left_join(kelch13_mutant_only, by = c("sample" = "Sample")) |> 
+  left_join(CRT_mutant_only, by = c("sample" = "Sample")) |> 
+  left_join(PX1_mutant_only, by = c("sample" = "Sample")) |> 
+  label_ungenotyped()
+kelch_poly_remove <- eth_eri_metadata |> 
+  filter(Kelch13_622 != "R622R/I")
+eth_eri_metadata_poly_remove <- ibd_results(
+  blocks          = file.path("render_inputs/ethiopia_eritrea/eth_eri_hmm.hmm.txt"),
+  pair_fraction   = file.path("render_inputs/ethiopia_eritrea/eth_eri_ibd_fraction.pair_ibd_fraction.tsv.gz"),
+  meta            = kelch_poly_remove,
+  genes           = PF_EXAMPLE_DRUG_GENES,
+  reference       = "pf3d7"
+)
+if ("Kelch13_622" %in% colnames(kelch_poly_remove)) {
+  Eth_Eri_kelch_plot_poly_remove <- eth_eri_metadata_poly_remove$plot_ibd_network(
+    gene = "pfkelch13", 
+    sharing = "complete", 
+    shape_group = "Country",
+    color_group = "Kelch13_622",
+    include_isolated = TRUE
+  )
+  save_plot("ibd_specific_regions/figures_ethiopia_eritrea/Eth_Eri_pfkelch13_poly_removed_ibd_plot.pdf", Eth_Eri_kelch_plot_poly_remove)
+}
+
+
+# Instantiate IBD Results for Eth/Eri merged dataset
+Eth_Eri_ibd_results <- ibd_results(
+  blocks          = file.path("render_inputs/ethiopia_eritrea/eth_eri_hmm.hmm.txt"),
+  pair_fraction   = file.path("render_inputs/ethiopia_eritrea/eth_eri_ibd_fraction.pair_ibd_fraction.tsv.gz"),
+  meta            = eth_eri_metadata,
+  genes           = PF_EXAMPLE_DRUG_GENES,
+  reference       = "pf3d7"
+)
+
+# 1. Genome-wide Network of Eth + Eri IBD colored by Country and shaped by Year
+Eth_Eri_genome_plot <- Eth_Eri_ibd_results$plot_ibd_pair_network(min_ibd = 0.03, color_group = "Country", shape_group = "Year")
+save_plot("ibd_specific_regions/figures_ethiopia_eritrea/Eth_Eri_whole_genome_ibd_plot.pdf", Eth_Eri_genome_plot)
+
+# 2. pfcrt Complete IBD Network colored by K76T mutation status (CRT_076) and shaped by Country
+# Check for CRT_076 codon column availability to represent K76T status
+if ("CRT_076" %in% colnames(eth_eri_metadata)) {
+  Eth_Eri_pfcrt_plot <- Eth_Eri_ibd_results$plot_ibd_network(
+    gene = "pfcrt", 
+    sharing = "complete", 
+    shape_group = "Country",
+    color_group = "CRT_076",
+    include_isolated = TRUE
+  )
+  save_plot("ibd_specific_regions/figures_ethiopia_eritrea/Eth_Eri_pfcrt_ibd_plot.pdf", Eth_Eri_pfcrt_plot)
+}
+
+# 3. Kelch13 Complete IBD Network colored by R622I Status (Kelch13_622) and shaped by Country
+if ("Kelch13_622" %in% colnames(eth_eri_metadata)) {
+  Eth_Eri_kelch_plot <- Eth_Eri_ibd_results$plot_ibd_network(
+    gene = "pfkelch13", 
+    sharing = "complete", 
+    shape_group = "Country",
+    color_group = "Kelch13_622",
+    include_isolated = TRUE,
+    spread = 2
+  )
+  save_plot("ibd_specific_regions/figures_ethiopia_eritrea/Eth_Eri_pfkelch13_ibd_plot.pdf", Eth_Eri_kelch_plot)
+}
+
+if ("CRT_076" %in% colnames(eth_eri_metadata)) {
+  Eth_Eri_pfkelch13_hap_k13_plot <- Eth_Eri_ibd_results$plot_ibd_network(
+    gene = "pfcrt", 
+    sharing = "complete", 
+    shape_group = "CRT_076",
+    color_group = "Kelch13_622",
+    include_isolated = TRUE,
+    spread = 2
+  )
+  save_plot("ibd_specific_regions/figures_ethiopia_eritrea/Eth_Eri_pfcrt_k13_ibd_plot.pdf", Eth_Eri_pfkelch13_hap_k13_plot)
+}
+
+
+if ("k13_mutation_hap" %in% colnames(eth_eri_metadata)) {
+  Eth_Eri_pfkelch13_hap_country_plot <- Eth_Eri_ibd_results$plot_ibd_network(
+    gene = "pfkelch13", 
+    sharing = "complete", 
+    shape_group = "Country",
+    color_group = "k13_mutation_hap",
+    include_isolated = TRUE,
+    spread = 2
+  )
+  save_plot("ibd_specific_regions/figures_ethiopia_eritrea/Eth_Eri_pfkelch13_hap_k13_ibd_plot.pdf", Eth_Eri_pfkelch13_hap_country_plot)
+}
+
+# pfcrt network colored by the CRT mutation haplotype
+if ("crt_mutation_hap" %in% colnames(eth_eri_metadata)) {
+  Eth_Eri_pfcrt_mutation_hap_plot <- Eth_Eri_ibd_results$plot_ibd_network(
+    gene = "pfcrt", 
+    sharing = "complete", 
+    shape_group = "Country",
+    color_group = "crt_mutation_hap",
+    include_isolated = TRUE
+  )
+  save_plot("ibd_specific_regions/figures_ethiopia_eritrea/Eth_Eri_pfcrt_mutation_hap_ibd_plot.pdf", Eth_Eri_pfcrt_mutation_hap_plot)
+}
+
+# pfpx1 network colored by the PX1 mutation haplotype
+if ("px1_mutation_hap" %in% colnames(eth_eri_metadata)) {
+  Eth_Eri_px1_mutation_hap_plot <- Eth_Eri_ibd_results$plot_ibd_network(
+    gene = "pfpx1", 
+    sharing = "complete", 
+    shape_group = "Country",
+    color_group = "px1_mutation_hap",
+    include_isolated = TRUE
+  )
+  save_plot("ibd_specific_regions/figures_ethiopia_eritrea/Eth_Eri_px1_mutation_hap_ibd_plot.pdf", Eth_Eri_px1_mutation_hap_plot)
+}
+```
+
+```{r}
+#| fig-width: 5
+#| fig-height: 5
+#| out-width: 60%
+print(Eth_Eri_genome_plot, merge_legends = TRUE, background = "transparent")
+```
+
+```{r}
+#| fig-width: 5
+#| fig-height: 5
+#| out-width: 60%
+if (exists("Eth_Eri_pfcrt_plot")) print(Eth_Eri_pfcrt_plot, merge_legends = TRUE, background = "transparent")
+```
+
+```{r}
+#| fig-width: 5
+#| fig-height: 5
+#| out-width: 60%
+if (exists("Eth_Eri_kelch_plot")) print(Eth_Eri_kelch_plot, merge_legends = TRUE, background = "transparent")
+```
+
+```{r}
+#| fig-width: 5
+#| fig-height: 5
+#| out-width: 60%
+if (exists("Eth_Eri_pfkelch13_hap_k13_plot")) print(Eth_Eri_pfkelch13_hap_k13_plot, merge_legends = TRUE, background = "transparent")
+```
+
+```{r}
+#| fig-width: 5
+#| fig-height: 5
+#| out-width: 60%
+if (exists("Eth_Eri_pfkelch13_hap_country_plot")) print(Eth_Eri_pfkelch13_hap_country_plot, merge_legends = TRUE, background = "transparent")
+```
+
+```{r}
+#| fig-width: 5
+#| fig-height: 5
+#| out-width: 60%
+if (exists("Eth_Eri_pfcrt_mutation_hap_plot")) print(Eth_Eri_pfcrt_mutation_hap_plot, merge_legends = TRUE, background = "transparent")
+```
+
+```{r}
+#| fig-width: 5
+#| fig-height: 5
+#| out-width: 60%
+if (exists("Eth_Eri_px1_mutation_hap_plot")) print(Eth_Eri_px1_mutation_hap_plot, merge_legends = TRUE, background = "transparent")
+```
+
+---
+# 6. Uganda + Ethiopia PX1-targeted HMM analysis
+---
+
+```{r,eval=F}
+# 6.1 Build the Uganda + Ethiopia sample list and merge in PX1 haplotypes
+supp_fws_up <- readr::read_tsv("render_inputs/shared/supp_fws_up.tsv", col_names = TRUE)
+
+eth_uga_samples <- supp_fws_up %>%
+  filter(Country %in% c("Ethiopia", "Uganda")) %>%
+  select(sample_id) %>%
+  distinct()
+
+# Optional: keep a metadata table to use later for haplotype-specific PX1 plots
+px1_genotype_result <- readr::read_tsv("render_inputs/shared/px1_genotype_result.tsv", col_names = TRUE) %>%
+  select(Sample, haplotype,"384") %>%
+  distinct()
+
+# Create output directories
+ dir.create("ibd_specific_regions/data_ethiopia_uganda_px1", showWarnings = FALSE, recursive = TRUE)
+ dir.create("ibd_specific_regions/output_ethiopia_uganda_px1", showWarnings = FALSE, recursive = TRUE)
+ dir.create("ibd_specific_regions/figures_ethiopia_uganda_px1", showWarnings = FALSE, recursive = TRUE)
+
+readr::write_tsv(eth_uga_samples, "ibd_specific_regions/data_ethiopia_uganda_px1/eth_uga_samples.txt", col_names = FALSE)
+```
+
+```{bash,eval=F}
+conda activate nf-core
+# 6.2 Extract only Ethiopia + Uganda samples and run hmmIBD
+bcftools view -S ibd_specific_regions/data_ethiopia_uganda_px1/eth_uga_samples.txt \
+  -Oz -o ibd_specific_regions/data_ethiopia_uganda_px1/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen.filt.csq.bi.GT.miss0.2.vqslod.filt.snps_eth_uga_only.vcf.gz \
+  /home/metmiku/popgen_ethiopia_WGS/all_country_merged/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen.filt.csq.bi.GT.miss0.2.vqslod.filt.snps.vcf.gz
+
+bcftools index ibd_specific_regions/data_ethiopia_uganda_px1/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen.filt.csq.bi.GT.miss0.2.vqslod.filt.snps_eth_uga_only.vcf.gz
+
+bcftools view --output-type b \
+  --output-file ibd_specific_regions/data_ethiopia_uganda_px1/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen.filt.csq.bi.GT.miss0.2.vqslod.filt.snps_eth_uga_only.bcf \
+  ibd_specific_regions/data_ethiopia_uganda_px1/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen.filt.csq.bi.GT.miss0.2.vqslod.filt.snps_eth_uga_only.vcf.gz
+
+bcftools index ibd_specific_regions/data_ethiopia_uganda_px1/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen.filt.csq.bi.GT.miss0.2.vqslod.filt.snps_eth_uga_only.bcf
+
+docker run -v /home/metmiku/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/whole_genome_scripts/snps_in_ibd_analysis/ibd_specific_regions:/data \
+  -u $(id -u):$(id -g) --rm hmmibd-rs:eppicenter \
+  hmmibd-rs -i /data/data_ethiopia_uganda_px1/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen.filt.csq.bi.GT.miss0.2.vqslod.filt.snps_eth_uga_only.bcf \
+  --from-bcf --bcf-read-mode dominant-allele \
+  -o /data/data_ethiopia_uganda_px1/eth_uga_hmm
+
+bcftools query -f '%CHROM\t%POS0\t%END\n' \
+  ibd_specific_regions/data_ethiopia_uganda_px1/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen.filt.csq.bi.GT.miss0.2.vqslod.filt.snps_eth_uga_only.bcf \
+  > ibd_specific_regions/data_ethiopia_uganda_px1/eth_uga_snps.bed
+
+conda activate nf-core
+plasgenomicsutils ibd_fraction_and_snp_density \
+  --blocks ibd_specific_regions/data_ethiopia_uganda_px1/eth_uga_hmm.hmm.txt \
+  --snps ibd_specific_regions/data_ethiopia_uganda_px1/eth_uga_snps.bed --snp-format bed \
+  --output ibd_specific_regions/output_ethiopia_uganda_px1/eth_uga_ibd_fraction
+
+plasgenomicsutils calculate_fws \
+  --monoclonal-threshold 0.90 \
+  --input-vcf ibd_specific_regions/data_ethiopia_uganda_px1/012026_pf_mgen_ug_india_eritrea_ethiopia_popgen.filt.csq.bi.GT.miss0.2.vqslod.filt.snps_eth_uga_only.bcf \
+  --out ibd_specific_regions/output_ethiopia_uganda_px1/eth_uga_fws.tsv
+```
+
+```{r}
+# 6.3 PX1-specific IBD network using the haplotype annotation from px1_genotype_result.tsv
+library(plasgenomicsutilsR)
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+supp_fws_up <- readr::read_tsv("render_inputs/shared/supp_fws_up.tsv", col_names = TRUE)
+
+px1_genotype_result <- read_tsv("render_inputs/shared/px1_genotype_result.tsv") |> 
+  select(Sample,"384",haplotype)
+eth_uga_metadata <- supp_fws_up %>%
+  filter(Country %in% c("Ethiopia", "Uganda")) %>%
+  rename(sample = sample_id) %>%
+  left_join(px1_genotype_result, by = c("sample" = "Sample")) %>%
+  left_join(CRT_df, by = c("sample" = "Sample")) %>%
+  left_join(CRT_mutant_only, by = c("sample" = "Sample")) %>%
+  left_join(PX1_mutant_only, by = c("sample" = "Sample")) %>%
+  left_join(kelch13_mutant_only, by = c("sample" = "Sample")) %>%
+  label_ungenotyped() %>%
+  distinct()
+
+eth_uga_px1_ibd_results <- ibd_results(
+  blocks          = file.path("render_inputs/ethiopia_uganda/eth_uga_hmm.hmm.txt"),
+  pair_fraction   = file.path("render_inputs/ethiopia_uganda/eth_uga_ibd_fraction.pair_ibd_fraction.tsv.gz"),
+  meta            = eth_uga_metadata,
+  genes           = PF_EXAMPLE_DRUG_GENES,
+  reference       = "pf3d7"
+)
+
+# Whole-genome network for Uganda + Ethiopia, coloured by Country
+eth_uga_genome_plot <- eth_uga_px1_ibd_results$plot_ibd_pair_network(
+  min_ibd = 0.03,
+  color_group = "Country",
+  shape_group = "Year"
+)
+save_plot("ibd_specific_regions/figures_ethiopia_uganda_px1/Eth_Uga_whole_genome_ibd_plot.pdf", eth_uga_genome_plot)
+
+# PX1 network coloured by PX1 haplotype
+eth_uga_px1_haplotype_plot <- eth_uga_px1_ibd_results$plot_ibd_network(
+  gene = "pfpx1",
+  sharing = "complete",
+  shape_group = "Country",
+  color_group = "haplotype",
+  include_isolated = TRUE
+)
+save_plot("ibd_specific_regions/figures_ethiopia_uganda_px1/Eth_Uga_px1_haplotype_ibd_plot.pdf", eth_uga_px1_haplotype_plot)
+
+# Optional: show PX1 network with country on shape and a second genotype variable on color if present
+if ("Year" %in% colnames(eth_uga_metadata)) {
+  eth_uga_px1_year_plot <- eth_uga_px1_ibd_results$plot_ibd_network(
+    gene = "pfpx1",
+    sharing = "complete",
+    shape_group = "Year",
+    color_group = "haplotype",
+    include_isolated = TRUE
+  )
+  save_plot("ibd_specific_regions/figures_ethiopia_uganda_px1/Eth_Uga_px1_year_haplotype_ibd_plot.pdf", eth_uga_px1_year_plot)
+}
+
+eth_uga_px1_384_plot <- eth_uga_px1_ibd_results$plot_ibd_network(
+  gene = "pfpx1",
+  sharing = "complete",
+  shape_group = "Country",
+  color_group = "384",
+  include_isolated = TRUE
+)
+save_plot("ibd_specific_regions/figures_ethiopia_uganda_px1/Eth_Uga_px1_384_ibd_plot.pdf", eth_uga_px1_384_plot)
+
+# pfpx1 network colored by the PX1 mutation haplotype
+if ("px1_mutation_hap" %in% colnames(eth_uga_metadata)) {
+  eth_uga_px1_mutation_hap_plot <- eth_uga_px1_ibd_results$plot_ibd_network(
+    gene = "pfpx1",
+    sharing = "complete",
+    shape_group = "Country",
+    color_group = "px1_mutation_hap",
+    include_isolated = TRUE
+  )
+  save_plot("ibd_specific_regions/figures_ethiopia_uganda_px1/Eth_Uga_px1_mutation_hap_ibd_plot.pdf", eth_uga_px1_mutation_hap_plot)
+}
+
+# pfcrt network colored by the CRT mutation haplotype
+if ("crt_mutation_hap" %in% colnames(eth_uga_metadata)) {
+  eth_uga_pfcrt_mutation_hap_plot <- eth_uga_px1_ibd_results$plot_ibd_network(
+    gene = "pfcrt",
+    sharing = "complete",
+    shape_group = "Country",
+    color_group = "crt_mutation_hap",
+    include_isolated = TRUE
+  )
+  save_plot("ibd_specific_regions/figures_ethiopia_uganda_px1/Eth_Uga_pfcrt_mutation_hap_ibd_plot.pdf", eth_uga_pfcrt_mutation_hap_plot)
+}
+
+if ("k13_mutation_hap" %in% colnames(eth_uga_metadata)) {
+  eth_uga_k13_mutation_hap_plot <- eth_uga_px1_ibd_results$plot_ibd_network(
+    gene = "pfkelch13",
+    sharing = "complete",
+    shape_group = "Country",
+    color_group = "k13_mutation_hap",
+    include_isolated = TRUE
+  )
+  save_plot("ibd_specific_regions/figures_ethiopia_uganda_px1/Eth_Uga_k13_mutation_hap_country_ibd_plot.pdf", eth_uga_k13_mutation_hap_plot)
+}
+```
+
+```{r}
+#| fig-width: 5
+#| fig-height: 5
+#| out-width: 60%
+print(eth_uga_genome_plot, merge_legends = TRUE, background = "transparent")
+```
+
+```{r}
+#| fig-width: 5
+#| fig-height: 5
+#| out-width: 60%
+print(eth_uga_px1_haplotype_plot, merge_legends = TRUE, background = "transparent")
+```
+
+```{r}
+#| fig-width: 5
+#| fig-height: 5
+#| out-width: 60%
+if (exists("eth_uga_px1_year_plot")) print(eth_uga_px1_year_plot, merge_legends = TRUE, background = "transparent")
+```
+
+```{r}
+#| fig-width: 5
+#| fig-height: 5
+#| out-width: 60%
+print(eth_uga_px1_384_plot, merge_legends = TRUE, background = "transparent")
+```
+
+```{r}
+#| fig-width: 5
+#| fig-height: 5
+#| out-width: 60%
+if (exists("eth_uga_px1_mutation_hap_plot")) print(eth_uga_px1_mutation_hap_plot, merge_legends = TRUE, background = "transparent")
+```
+
+```{r}
+#| fig-width: 5
+#| fig-height: 5
+#| out-width: 60%
+if (exists("eth_uga_pfcrt_mutation_hap_plot")) print(eth_uga_pfcrt_mutation_hap_plot, merge_legends = TRUE, background = "transparent")
+```
+
+```{r}
+#| fig-width: 5
+#| fig-height: 5
+#| out-width: 60%
+if (exists("eth_uga_k13_mutation_hap_plot")) print(eth_uga_k13_mutation_hap_plot, merge_legends = TRUE, background = "transparent")
+```
+
+```{r,eval=F}
+# 6.4 Quick summary table for the PX1 haplotype grouping
+eth_uga_px1_summary <- eth_uga_metadata %>%
+  filter(!is.na(haplotype)) %>%
+  count(Country, haplotype, name = "n_samples") %>%
+  arrange(Country, haplotype)
+
+print(eth_uga_px1_summary)
+```
+
