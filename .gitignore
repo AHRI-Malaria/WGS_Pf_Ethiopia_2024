@@ -110,3 +110,4 @@ whole_genome_scripts/genotype_extraction/*.qmd
 # maintained Quarto project in flanking_haplotype/flanking_haplotype_k13/ tracked.
 /flanking_haplotype/*.Rmd
 /flanking_haplotype/*.py
+whole_genome_scripts
