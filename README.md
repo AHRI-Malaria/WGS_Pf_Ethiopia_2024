@@ -32,8 +32,22 @@ Scripts are listed in the order they are run in the analysis.
 | Tajima's D | Tajima's D across the genome for specified comparison groups | [`tajima.sh`](https://github.com/leenvh/WGS_Pf_Ethiopia_2024/blob/main/tajimasD/tajima.sh) |
 | Composite selection signals | Multi-tiered analytical framework combining all four selection metrics for specified comparison groups | [`comp_selection/`](https://github.com/leenvh/WGS_Pf_Ethiopia_2024/tree/main/comp_selection) |
 
+### 4. Whole-genome follow-up analyses
 
-### 4. Statistical analysis
+The selected whole-genome analysis projects are organized at the repository root:
+
+| Analysis | Description | Directory or script |
+|----------|-------------|---------------------|
+| Chromosome 11 haplotype structure | Haplotype structure around the chromosome 11 region | [`chr11_region_haplotype_structure/`](chr11_region_haplotype_structure/) |
+| K13 flanking haplotypes | Quarto analysis of K13 flanking haplotypes | [`flanking_haplotype/flanking_haplotype_k13/`](flanking_haplotype/flanking_haplotype_k13/) |
+| Genotype extraction | Whole-genome BAM, genotype, and drug-resistance extraction analyses | [`genotype_extraction/`](genotype_extraction/) |
+| IBD-specific regions | IBD analyses for selected regions and sample groups | [`ibd_specific_regions/`](ibd_specific_regions/) |
+| Jost's D | Population differentiation analyses, including K13 622I comparisons | [`jostD_analysis/`](jostD_analysis/) |
+
+The K13 Quarto project is the maintained flanking-haplotype analysis. The older top-level R Markdown and Python scripts in `flanking_haplotype/` are ignored by Git.
+
+
+### 5. Statistical analysis
 
 | Step | Description | Script |
 |------|-------------|--------|
@@ -41,7 +55,7 @@ Scripts are listed in the order they are run in the analysis.
 | 2 | Regression / interaction analysis across populations (R622I) | [`multiple_pop_R622I_interaction_analysis.R`](https://github.com/leenvh/WGS_Pf_Ethiopia_2024/blob/main/regression/multiple_pop_R622I_interaction_analysis.R) |
 | 3 | Visualise K13 interaction results | [`K13_interaction_vis.R`](https://github.com/leenvh/WGS_Pf_Ethiopia_2024/blob/main/regression/K13_interaction_vis.R) |
 
-### 5. Map visualisations
+### 6. Map visualisations
 
 | Description | Script |
 |-------------|--------|
