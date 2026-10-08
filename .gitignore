@@ -1,6 +1,5 @@
 genotype_extraction/targets_pathweaver/*
 ethiopia_vcf/*
-genotype_extraction/*
 work/*
 duplication_mdr1_pla/*
 fws/*
@@ -87,7 +86,6 @@ whole_genome_scripts/**/_freeze/
 whole_genome_scripts/**/_book/
 !genotype_extraction/*.qmd
 !genotype_extraction/WGS_drug_resistance_extraction/
-genotype_extraction/WGS_drug_resistance_extraction/*
 !genotype_extraction/WGS_drug_resistance_extraction/.gitignore
 !genotype_extraction/WGS_drug_resistance_extraction/References.qmd
 !genotype_extraction/WGS_drug_resistance_extraction/_quarto.yml
@@ -105,7 +103,8 @@ whole_genome_scripts/**/*.RData
 whole_genome_scripts/**/*.rdb
 whole_genome_scripts/**/*.rdx
 whole_genome_scripts/genotype_extraction/*.qmd
-
+genotype_extraction/all_bam_extraction.qmd
+genotype_extraction/genotype_extraction.qmd
 # Ignore the superseded top-level flanking-haplotype scripts while keeping the
 # maintained Quarto project in flanking_haplotype/flanking_haplotype_k13/ tracked.
 /flanking_haplotype/*.Rmd
