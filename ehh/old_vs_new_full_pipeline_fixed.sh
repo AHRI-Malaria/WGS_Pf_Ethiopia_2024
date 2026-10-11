@@ -1,20 +1,6 @@
 #!/bin/bash
 # EHH pipeline: old (pre-2024) vs new (2024) Ethiopian samples.
 #
-# Fixed version of old_vs_new_full_pipeline.sh. Differences:
-#   1. No MAF filter on the pooled VCF. The original ran `bcftools view -q 0.01`
-#      on all Ethiopian samples together, which removes SNPs common within one
-#      group but rare overall, and `-q` without `:minor` tests the
-#      non-reference allele rather than the minor allele. MAF is now applied
-#      only per group, by prepare_input_rehh_per_category.R.
-#   2. Per-group Tajima's D exclusion. The original excluded the top 10% of
-#      windows from a D computed on both groups pooled (after the MAF filter).
-#      D is now computed per group on its monoclonal (Fws >= FWS_TH) samples
-#      with no MAF filter, and each group excludes its own top 10% windows plus
-#      the hypervariable regions. Each group therefore gets its own VCF and
-#      binary matrix; Rsb/XP-EHH use only SNPs present in both groups.
-#   The Year column is looked up by name rather than by position.
-#
 # Usage:
 #   cd <analysis_data_dir> && /path/to/repo/ehh/old_vs_new_full_pipeline_fixed.sh
 #
