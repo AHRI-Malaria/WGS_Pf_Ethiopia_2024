@@ -2,22 +2,6 @@
 # EHH pipeline: pfcrt K76 vs 76T within the co-endemic sites
 # (Gondar, Mizan, Metehera Fentale; Country == Ethiopia & Year == 2024).
 #
-# GROUP DEFINITION
-# The split is made on pfcrt K76T alone (Pf3D7_07_v3:403,625), taken from
-# input_files/K76T_longformat.csv:
-#     K76 = 0/0 (wild-type)      76T = 1/1 (mutant)
-# Heterozygous (0/1), missing (./.) and second-alternate calls are excluded.
-# Codons 75 and 76 are multiallelic and therefore absent from the .bi. VCF used
-# downstream, which is why the genotype comes from the long-format CSV.
-#
-# The groups are named for the codon-76 genotype rather than the CVIET/CVMNK
-# haplotype because the other haplotype-defining codons cannot be resolved
-# here: M74I (403,620) has cohort AC=6 and is 0/0 in every co-endemic-site
-# sample, and no variant is called anywhere in codon 75 (403,621-403,623).
-#
-# Group sizes at fws >= 0.95: 76T 32, K76 23 (of 55 monoclonal / 73 total).
-#
-#
 # Usage:
 #   cd <analysis_data_dir> && /path/to/repo/ehh/pfcrt_genotype_full_pipeline_fixed.sh
 #
