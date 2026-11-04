@@ -4,25 +4,6 @@
 # Sites (District, Country == Ethiopia & Year == 2024):
 #   Gondar, Gambella, Metehera Fentale, Mizan, Arba Minch
 #
-# Site labels are underscore-normalised (e.g. "Arba Minch" -> "Arba_Minch")
-# because category names end up in output filenames and in the category list.
-#
-# Rsb and XP-EHH are computed for all pairwise site contrasts in addition to iHS.
-#
-# Fixed version of sites_full_pipeline.sh. Differences:
-#   1. No MAF filter on the pooled VCF. The original ran `bcftools view -q 0.01`
-#      on all 2024 Ethiopian samples together, which removes SNPs common within
-#      one site but rare overall, and `-q` without `:minor` tests the
-#      non-reference allele rather than the minor allele. MAF is now applied
-#      only per group (site), by prepare_input_rehh_per_category.R.
-#   2. Per-group Tajima's D exclusion. The original excluded the top 10% of
-#      windows from a D computed on all 2024 Ethiopian samples pooled (after the
-#      MAF filter). D is now computed per group on its monoclonal
-#      (Fws >= FWS_TH) samples with no MAF filter, and each group excludes its
-#      own top 10% windows plus the hypervariable regions. Each group therefore
-#      gets its own VCF and binary matrix; Rsb/XP-EHH use only SNPs present in
-#      both groups of a pair.
-#
 # Usage:
 #   cd <analysis_data_dir> && /path/to/repo/ehh/sites_full_pipeline_fixed.sh
 #

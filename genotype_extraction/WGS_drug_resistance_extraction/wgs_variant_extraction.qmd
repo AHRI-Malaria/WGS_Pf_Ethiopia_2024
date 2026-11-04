@@ -141,6 +141,11 @@ mkdir -p /mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethio
 conda activate nf-core
 cd /mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/pfalciparum_09_24_v2/cram/
 nextflow run /mnt/storage13/ahri/hrp2_analysis/elucidatornf/pathweaver_extract_regions.nf --bams_dir ./ --pw_bed_fnp /mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/whole_genome_scripts/genotype_extraction/WGS_drug_resistance_extraction/data/bed/exon_minus_tandems_KIC9.bed   --genome_fnp /mnt/storage13/ahri/hrp2_analysis/pf_genomes/genomes/Pf3D7.fasta --outdir /mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/whole_genome_scripts/genotype_extraction/WGS_drug_resistance_extraction/output/seekdeep_kic9 --bams_file_ending ".bam" --pw_extract_region_assemblies_extra_args="--qualCheck 20" -profile apptainer -resume --do_variant_calling
+
+mkdir -p /mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/whole_genome_scripts/genotype_extraction/WGS_drug_resistance_extraction/output/seekdeep_k13
+conda activate nf-core
+cd /mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/pfalciparum_09_24_v2/cram/
+nextflow run /mnt/storage13/ahri/hrp2_analysis/elucidatornf/pathweaver_extract_regions.nf --bams_dir ./ --pw_bed_fnp /mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/whole_genome_scripts/genotype_extraction/WGS_drug_resistance_extraction/data/bed/pfkelch13_sub_regions.bed   --genome_fnp /mnt/storage13/ahri/hrp2_analysis/pf_genomes/genomes/Pf3D7.fasta --outdir /mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/whole_genome_scripts/genotype_extraction/WGS_drug_resistance_extraction/output/seekdeep_k13 --bams_file_ending ".bam"  --pw_extract_region_assemblies_extra_args="--qualCheck 20" -profile apptainer -resume --do_variant_calling
 ```
 
 ```{r}
@@ -153,13 +158,37 @@ suppleme_fws <- read.csv(
   "/mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/supplementary_Data/supp_fws_up.tsv",
   sep = "\t"
 ) %>%
-  select(sample_id, Country, fws) %>%
+  dplyr::select(sample_id, Country, fws) %>%
   mutate(Sample = gsub("_S[0-9]+$", "", sample_id)) %>%
   mutate(Sample = gsub("-D0", "_D0", Sample)) %>%
   mutate(Sample = gsub("NG-A4488_", "", Sample)) %>%
   mutate(Sample = gsub("_libLAN[0-9]+", "", Sample)) %>%
-  select(Sample, Country, fws)
+  dplyr::select(Sample, Country, fws)
+seekdeep_results_k13 <- read.csv(
+  "/mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/whole_genome_scripts/genotype_extraction/WGS_drug_resistance_extraction/output/seekdeep_k13/PathWeaverResults/variantCalls/reports/summary/AAChangesInfo.tsv.gz",
+  sep = "\t"
+)%>%
+  mutate(Sample = gsub("_S[0-9]+$", "", sample)) %>%
+  mutate(Sample = gsub("-D0", "_D0", Sample)) %>%
+  mutate(Sample = gsub("NG-A4488_", "", Sample)) %>%
+  mutate(Sample = gsub("_libLAN[0-9]+", "", Sample)) %>%
+  filter(AA_cnt != 0) %>%
+  filter(!(Gene == "Kelch13" & reference_AA_pos == "427")) |> 
+  dplyr::select(
+    Sample,
+    Gene,
+    Gene_ID,
+    reference_AA_pos,
+    reference_AA,
+    AA,
+    is_reference,
+    AA_freq,
+    AA_cnt
+  ) %>%
+  # dplyr::rename(Read = AA_cnt)
+  right_join(suppleme_fws, by = "Sample")
 
+  
 seekdeep_results_ubp <- read.csv(
   "output/seekdeep_ubp_kic/PathWeaverResults/variantCalls/reports/summary/AAChangesInfo.tsv.gz",
   sep = "\t"
@@ -169,7 +198,7 @@ seekdeep_results_ubp <- read.csv(
   mutate(Sample = gsub("NG-A4488_", "", Sample)) %>%
   mutate(Sample = gsub("_libLAN[0-9]+", "", Sample)) %>%
   filter(AA_cnt != 0) %>%
-  select(
+  dplyr::select(
     Sample,
     Gene,
     Gene_ID,
@@ -192,7 +221,7 @@ seekdeep_results_kic9 <- read.csv(
   mutate(Sample = gsub("NG-A4488_", "", Sample)) %>%
   mutate(Sample = gsub("_libLAN[0-9]+", "", Sample)) %>%
   filter(AA_cnt != 0) %>%
-  select(
+  dplyr::select(
     Sample,
     Gene,
     Gene_ID,
@@ -208,13 +237,13 @@ seekdeep_results_kic9 <- read.csv(
 seekdeep_results <- read.csv(
   "output/seekdeep/PathWeaverResults/variantCalls/reports/summary/AAChangesInfo.tsv.gz",
   sep = "\t"
-) %>%
+)  |>   filter(Gene != "Kelch13") |> # the reason is that I am using different bed file for the k13 which has covered more region 
   mutate(Sample = gsub("_S[0-9]+$", "", sample)) %>%
   mutate(Sample = gsub("-D0", "_D0", Sample)) %>%
   mutate(Sample = gsub("NG-A4488_", "", Sample)) %>%
   mutate(Sample = gsub("_libLAN[0-9]+", "", Sample)) %>%
   filter(AA_cnt != 0) %>%
-  select(
+  dplyr::select(
     Sample,
     Gene,
     Gene_ID,
@@ -229,8 +258,11 @@ seekdeep_results <- read.csv(
   right_join(suppleme_fws, by = "Sample") |> 
   # filter(Gene != "PX1") |> # the reason i remove this px1 here is that the bed file is from the one Nick send us not from the one tandem remove
   rbind(seekdeep_results_ubp) |> 
-  rbind(seekdeep_results_kic9)
-readr::write_tsv(seekdeep_results, "output/drug_resistance/seekdeep_results.tsv.gz")
+  rbind(seekdeep_results_kic9) |> 
+  rbind(seekdeep_results_k13)
+# readr::write_tsv(seekdeep_results, "output/drug_resistance/seekdeep_results.tsv.gz")
+readr::write_tsv(seekdeep_results, "output/drug_resistance/seekdeep_results_updated.tsv.gz") # updating the previous seekdeep result
+
   wide_sample <- seekdeep_results %>%
   mutate(
     mutation_status = ifelse(reference_AA == AA, "wildtype", "mutant"),
@@ -309,7 +341,9 @@ allelic_freq <- mutation_prevalence_long %>%
     values_fill = "0 (0/0)"
   ) %>%
   arrange(Gene, reference_AA_pos)
-readr::write_tsv(allelic_freq, "output/drug_resistance/allelic_freq.tsv")
+# readr::write_tsv(allelic_freq, "output/drug_resistance/allelic_freq.tsv")
+readr::write_tsv(allelic_freq, "output/drug_resistance/allelic_freq_updated.tsv") # updating the allelic frequency result
+
 mutation_prevalence_plot <- mutation_prevalence_long %>%
   mutate(
     mutation_label = paste(Gene, mutation, sep = ": "),
@@ -824,6 +858,76 @@ dev.off()
 
 hap_plot_by_group(crt_regions_pw_AAChangesInfo_collapse, sample_meta,
                   prefix = "pfcrt_hap_plot_thr_80", width = 15, per_row = pfcrt_hap_plot_per_row)
+
+
+```
+# combination of haplotype construction for pfK13 regions 
+```{r}
+suppleme_fws <- read.csv(
+  "/mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/supplementary_Data/supp_fws_up.tsv",
+  sep = "\t"
+) %>%
+  select(sample_id, Country, fws) %>%
+  mutate(Sample = gsub("_S[0-9]+$", "", sample_id)) %>%
+  mutate(Sample = gsub("-D0", "_D0", Sample)) %>%
+  mutate(Sample = gsub("NG-A4488_", "", Sample)) %>%
+  mutate(sample = gsub("_libLAN[0-9]+", "", Sample)) %>%
+  select(sample, Country) |> 
+  dplyr::rename(country = Country) 
+sample_meta <- suppleme_fws
+k13_regions_pw_AAChangesInfo  <- read.csv(
+  "/mnt/storage13/ahri/popgen_ethiopia_WGS/all_country_merged/WGS_Pf_Ethiopia_2024/whole_genome_scripts/genotype_extraction/WGS_drug_resistance_extraction/output/seekdeep_k13/PathWeaverResults/variantCalls/reports/summary/AAChangesInfo.tsv.gz",
+  sep = "\t"
+) |>  mutate(Sample = gsub("_S[0-9]+$", "", sample)) %>%
+  mutate(Sample = gsub("-D0", "_D0", Sample)) %>%
+  mutate(Sample = gsub("NG-A4488_", "", Sample)) %>%
+  mutate(Sample = gsub("_libLAN[0-9]+", "", Sample)) %>%
+  filter(AA_cnt > 0) |> 
+  filter(reference_AA_pos != "427") #since this we couldnot find out this variant in the bam file but might be come from the unmapped reads 
+
+min_within_sample_freq = 0.1
+
+k13_regions_pw_AAChangesInfo_collapse = k13_regions_pw_AAChangesInfo %>% 
+  filter(AA_freq >= min_within_sample_freq) |> 
+  group_by(Sample, reference_AA_pos, reference_AA) %>% 
+  arrange(desc(is_reference)) %>% 
+  summarise(AA = paste0(AA, collapse = "/"), .groups = "drop") |> 
+  filter(Sample %in% suppleme_fws$sample) |> 
+  dplyr::rename(sample = Sample)
+
+# drop samples called at fewer than this fraction of CRT positions
+min_pos_called_frac = 0.8
+
+n_k13_positions = n_distinct(k13_regions_pw_AAChangesInfo_collapse$reference_AA_pos)
+
+k13_sample_missingness = k13_regions_pw_AAChangesInfo_collapse |> 
+  group_by(sample) |> 
+  summarise(n_called = n_distinct(reference_AA_pos), .groups = "drop") |> 
+  mutate(frac_called = n_called / n_k13_positions,
+         frac_missing = 1 - frac_called)
+
+k13_regions_pw_AAChangesInfo_collapse = k13_regions_pw_AAChangesInfo_collapse |> 
+  semi_join(filter(k13_sample_missingness, frac_called >= min_pos_called_frac), by = "sample")
+
+k13_regions_pw_AAChangesInfo_collapse_sp = k13_regions_pw_AAChangesInfo_collapse %>% 
+  mutate(aa_id = paste0(reference_AA, reference_AA_pos, ifelse(reference_AA != AA, AA, ""))) %>% 
+  ungroup() %>% 
+  mutate(gene_pos = paste0("CRT_", stringr::str_pad(reference_AA_pos, pad = "0", width = 3))) %>% 
+  select(sample, gene_pos, aa_id) %>% 
+  spread(gene_pos, aa_id)
+
+pfk13_hap_plot = aa_hap_plot(k13_regions_pw_AAChangesInfo_collapse, sample_meta)
+
+# the page has always been 30 inches for these rows; reuse that per-row height for the
+# per-country figures, which have fewer haplotypes
+pfk13_hap_plot_per_row = 30 / attr(pfk13_hap_plot, "n_hap")
+
+cairo_pdf("pfk13_hap_plot.pdf", width = 15, height = 30)
+print(pfk13_hap_plot)
+dev.off()
+
+hap_plot_by_group(k13_regions_pw_AAChangesInfo_collapse, sample_meta,
+                  prefix = "pfk13_hap_plot_thr_80", width = 15, per_row = pfk13_hap_plot_per_row)
 
 
 ```
