@@ -62,15 +62,15 @@ gene_ids <- c(
 # DEFINE COMPARISONS
 # ==============================================================================
 
-comparisons <- c("countries", "regions", "hrp", "k13", "north_vs_other", "old_vs_new")
+comparisons <- c("countries", "regions", "hrp", "k13", "sites", "old_vs_new")
 
 # ==============================================================================
 # FUNCTION: Extract gene signals from SNP file
 # ==============================================================================
 
 extract_snp_signals <- function(comp_name) {
-  f <- paste0(comp_name, "/", comp_name, "_integrated_selection_analysis_SNPs.tsv")
-  if (!file.exists(f)) return(NULL)
+  f <- paste0(comp_name, "/fixed_", comp_name, "_integrated_selection_analysis_SNPs.tsv")
+  if (!file.exists(f)) { warning("Missing SNP file: ", f, call. = FALSE); return(NULL) }
 
   dat <- read.delim(f, stringsAsFactors = FALSE)
   results <- list()
@@ -147,8 +147,8 @@ find_gene_in_string <- function(gene_str, gene_ids, gene_display) {
 # ==============================================================================
 
 extract_window_signals <- function(comp_name) {
-  f <- paste0(comp_name, "/", comp_name, "_integrated_selection_analysis_windows.tsv")
-  if (!file.exists(f)) return(NULL)
+  f <- paste0(comp_name, "/fixed_", comp_name, "_integrated_selection_analysis_windows.tsv")
+  if (!file.exists(f)) { warning("Missing window file: ", f, call. = FALSE); return(NULL) }
 
   dat <- read.delim(f, stringsAsFactors = FALSE)
   results <- list()
@@ -237,11 +237,11 @@ gene_order <- c("crt", "dhps", "dhfr", "mdr1", "aat1", "kelch13", "px1", "mca2",
 signals_df$gene <- factor(signals_df$gene, levels = gene_order)
 
 # Rename populations for display
+# Site names (Arba_Minch, Gambella, Gondar, Metehera_Fentale, Mizan) are kept
+# as-is, matching how region names like Horn_of_Africa are displayed.
 pop_rename <- c(
   "new"   = "Newly sequenced Ethiopian isolates",
-  "old"   = "Older Ethiopian isolates",
-  "north" = "Northern Ethiopia",
-  "rest"  = "Other parts of Ethiopia"
+  "old"   = "Older Ethiopian isolates"
 )
 signals_df$population <- ifelse(
   signals_df$population %in% names(pop_rename),
@@ -260,8 +260,8 @@ pop_order <- c(
   "hrp_wild", "hrp3_only", "hrp_double_deleted",
   # K13 groups
   "r622i_wt", "r622i_mut",
-  # North vs other
-  "Northern Ethiopia", "Other parts of Ethiopia",
+  # Sites
+  "Gondar", "Metehera_Fentale", "Arba_Minch", "Mizan", "Gambella",
   # Old vs new
   "Newly sequenced Ethiopian isolates", "Older Ethiopian isolates"
 )
@@ -369,7 +369,9 @@ theme_selection <- theme_bw(base_size = 12) +
 # ------------------------------------------------------------------------------
 
 make_selection_plot <- function(dat, title_text, pop_order_vec, comparison_groups,
-                                subtitle_text = NULL) {
+                                subtitle_text = NULL, y_label_fn = identity) {
+  # y_label_fn only rewrites the printed axis text; the population values stay
+  # as they are in the data, since they key the ordering and group lookups.
   # comparison_groups: list of list(label, pops) in display order (top to bottom)
 
   # Build ordered population vector (top to bottom on y-axis = last to first in factor)
@@ -394,28 +396,21 @@ make_selection_plot <- function(dat, title_text, pop_order_vec, comparison_group
       x_offset       = ifelse(analysis == "SNP", x_num - 0.18, x_num + 0.18)
     )
 
-  # Horizontal separator lines between comparison groups
+  # Horizontal separator lines between comparison groups.
+  # Populations with no signals are dropped from the y-axis, so count only the
+  # ones actually drawn — otherwise every line sits one row off.
+  pop_drawn <- pop_vec[pop_vec %in% as.character(dat$population)]
+  n_drawn   <- length(pop_drawn)
+
   hline_positions <- c()
   cumulative <- 0
   for (i in seq_along(comparison_groups)) {
-    cumulative <- cumulative + length(comparison_groups[[i]]$pops)
-    if (i < length(comparison_groups)) {
-      hline_positions <- c(hline_positions,
-                           length(pop_vec) - cumulative + 0.5)
+    cumulative <- cumulative + sum(comparison_groups[[i]]$pops %in% pop_drawn)
+    if (i < length(comparison_groups) && cumulative > 0 && cumulative < n_drawn) {
+      hline_positions <- c(hline_positions, n_drawn - cumulative + 0.5)
     }
   }
-
-  # Comparison group labels for left-hand side annotation
-  label_df <- data.frame(
-    label = character(), mid_y = numeric(), stringsAsFactors = FALSE
-  )
-  cumul <- 0
-  for (g in comparison_groups) {
-    n <- length(g$pops)
-    mid_y <- length(pop_vec) - cumul - (n - 1) / 2
-    label_df <- rbind(label_df, data.frame(label = g$label, mid_y = mid_y))
-    cumul <- cumul + n
-  }
+  hline_positions <- unique(hline_positions)
 
   p <- ggplot(dat, aes(x = x_offset, y = population)) +
     geom_point(aes(shape = analysis, colour = analysis_ntools),
@@ -423,6 +418,7 @@ make_selection_plot <- function(dat, title_text, pop_order_vec, comparison_group
     scale_shape_manual(values = c("SNP" = 17, "window" = 16),
                        labels = c("SNP" = "SNP-based", "window" = "Window-based")) +
     scale_colour_manual(values = combined_palette, drop = FALSE) +
+    scale_y_discrete(labels = y_label_fn) +
     scale_x_continuous(
       breaks = seq_along(local_gene_order),
       labels = local_gene_order,
@@ -439,21 +435,14 @@ make_selection_plot <- function(dat, title_text, pop_order_vec, comparison_group
     p <- p + geom_hline(yintercept = ypos, linewidth = 1, colour = "black")
   }
 
-  # Add comparison labels on the left
-  for (i in seq_len(nrow(label_df))) {
-    p <- p + annotate("text", x = 0.3, y = label_df$mid_y[i],
-                       label = label_df$label[i], angle = 90,
-                       size = 3, fontface = "bold")
-  }
-
   p <- p + coord_cartesian(clip = "off") +
-    theme(plot.margin = margin(5, 5, 5, 40))
+    theme(plot.margin = margin(5, 5, 5, 5))
 
   p
 }
 
 # ==============================================================================
-# FIGURE 2A: Geographical comparisons (countries, regions, north_vs_other, old_vs_new)
+# FIGURE 2A: Geographical comparisons (countries, regions, sites, old_vs_new)
 # ==============================================================================
 
 geo_groups <- list(
@@ -462,25 +451,26 @@ geo_groups <- list(
                 "Mali", "Nigeria", "Ghana")),
   list(label = "Regions",
        pops = c("Horn_of_Africa", "East_Africa", "West_Africa")),
-  list(label = "North vs Other",
-       pops = c("Northern Ethiopia", "Other parts of Ethiopia")),
+  list(label = "Sites",
+       pops = c("Gondar", "Metehera_Fentale", "Arba_Minch", "Mizan", "Gambella")),
   list(label = "Old vs New",
        pops = c("Newly sequenced Ethiopian isolates", "Older Ethiopian isolates"))
 )
 
 geo_data <- signals_count %>%
-  filter(comparison %in% c("countries", "regions", "north_vs_other", "old_vs_new"))
+  filter(comparison %in% c("countries", "regions", "sites", "old_vs_new"))
 
 p2a <- make_selection_plot(
   geo_data,
   "Selection signals — Geographical comparisons",
   NULL, geo_groups,
-  subtitle_text = "Only signals detected by 2+ tools shown"
+  subtitle_text = "Only signals detected by 2+ tools shown",
+  y_label_fn = function(x) gsub("_", " ", x)
 )
 
 if (!is.null(p2a)) {
   ggsave("gene_selection_summary_geographical.pdf", p2a,
-         width = 10, height = 8, units = "in")
+         width = 8, height = 7, units = "in")
   cat("Figure saved: gene_selection_summary_geographical.pdf\n")
 }
 
@@ -552,8 +542,9 @@ kic_groups <- list(
        pops = intersect(c("hrp_wild", "hrp3_only", "hrp_double_deleted"), kic_pop_list)),
   list(label = "R622I",
        pops = intersect(c("r622i_wt", "r622i_mut"), kic_pop_list)),
-  list(label = "North vs Other",
-       pops = intersect(c("Northern Ethiopia", "Other parts of Ethiopia"), kic_pop_list)),
+  list(label = "Sites",
+       pops = intersect(c("Gondar", "Metehera_Fentale", "Arba_Minch", "Mizan",
+                           "Gambella"), kic_pop_list)),
   list(label = "Old vs New",
        pops = intersect(c("Newly sequenced Ethiopian isolates", "Older Ethiopian isolates"), kic_pop_list))
 )
@@ -584,6 +575,13 @@ ibd_all <- read.delim("../hmmIBD/hmmibd_combined_win10kb_annotated.tsv",
                        stringsAsFactors = FALSE)
 ibd_all <- ibd_all %>% filter(!is.na(fraction))
 
+# Keep only the comparisons shown in the figures above. Arba_Minch and Gambella
+# carry the same category name under both 'by_site' and 'sites_grouping', so
+# without this filter their windows would be pooled across two analyses.
+ibd_comparisons <- c("by_country", "by_region", "hrp_status", "r622i",
+                      "by_site", "old_vs_new")
+ibd_all <- ibd_all %>% filter(comparison %in% ibd_comparisons)
+
 # Recode category names to match the display names used elsewhere
 ibd_recode <- c(
   "Eritrea" = "Eritrea", "Ethiopia" = "Ethiopia", "Sudan" = "Sudan",
@@ -595,7 +593,8 @@ ibd_recode <- c(
   "wild" = "hrp_wild", "hrp3_only" = "hrp3_only",
   "mutant" = "hrp_double_deleted", "hrp_double_deleted" = "hrp_double_deleted",
   "wt" = "r622i_wt", "mut" = "r622i_mut",
-  "north" = "Northern Ethiopia", "rest" = "Other parts of Ethiopia",
+  "Gondar" = "Gondar", "Metehera_Fentale" = "Metehera_Fentale",
+  "Arba_Minch" = "Arba_Minch", "Mizan" = "Mizan", "Gambella" = "Gambella",
   "new" = "Newly sequenced Ethiopian isolates",
   "old" = "Older Ethiopian isolates"
 )
@@ -629,7 +628,7 @@ all_pop_order <- c(
   "Horn_of_Africa", "East_Africa", "West_Africa",
   "hrp_wild", "hrp3_only", "hrp_double_deleted",
   "r622i_wt", "r622i_mut",
-  "Northern Ethiopia", "Other parts of Ethiopia",
+  "Gondar", "Metehera_Fentale", "Arba_Minch", "Mizan", "Gambella",
   "Newly sequenced Ethiopian isolates", "Older Ethiopian isolates"
 )
 pops_present <- intersect(all_pop_order, unique(ibd_all$category))
@@ -648,7 +647,8 @@ comp_lookup <- c(
   "Horn_of_Africa" = "Regions", "East_Africa" = "Regions", "West_Africa" = "Regions",
   "hrp_wild" = "HRP", "hrp3_only" = "HRP", "hrp_double_deleted" = "HRP",
   "r622i_wt" = "R622I", "r622i_mut" = "R622I",
-  "Northern Ethiopia" = "North vs Other", "Other parts of Ethiopia" = "North vs Other",
+  "Gondar" = "Sites", "Metehera_Fentale" = "Sites", "Arba_Minch" = "Sites",
+  "Mizan" = "Sites", "Gambella" = "Sites",
   "Newly sequenced Ethiopian isolates" = "Old vs New",
   "Older Ethiopian isolates" = "Old vs New"
 )
@@ -656,7 +656,7 @@ comp_lookup <- c(
 ibd_bg$comp_group <- comp_lookup[as.character(ibd_bg$category)]
 kic_ibd$comp_group <- comp_lookup[as.character(kic_ibd$category)]
 
-group_order <- c("Countries", "Regions", "HRP", "R622I", "North vs Other", "Old vs New")
+group_order <- c("Countries", "Regions", "HRP", "R622I", "Sites", "Old vs New")
 ibd_bg$comp_group <- factor(ibd_bg$comp_group, levels = group_order)
 kic_ibd$comp_group <- factor(kic_ibd$comp_group, levels = group_order)
 

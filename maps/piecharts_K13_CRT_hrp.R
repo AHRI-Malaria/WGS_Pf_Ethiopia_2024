@@ -564,7 +564,7 @@ ggsave("figs/map_kelch13.pdf",base_map_combined, width = 8, height = 6, dpi = 30
 # CRT K76T
 # python crt_convert.py
 K76T <-read.csv("../input_files/K76T_longformat.csv")
-met <- read.csv("../input_files/Popgen_db_samples_072025_filt_FINAL.csv")
+met <- read.csv("../input_files/Popgen_db_samples_012026_filt_FINAL_fws.csv")
 
 K76T <- K76T %>%
   mutate(Genotype = case_when(
@@ -592,7 +592,7 @@ K76T_percentage <- K76T_counts %>%
 
 districts<-met %>%
   filter(Country == "Ethiopia") %>%
-  select(District, District.longitude, District.latitude) %>%
+  select(District, Admin.level.1.longitude, Admin.level.1.latitude) %>%
   distinct() %>%
   na.omit()
 
@@ -611,7 +611,7 @@ genotype_map_data <- genotype_map_data %>%
 
 # Pivot to wide format for scatterpie
 pie_data <- genotype_map_data %>%
-  select(District, District.longitude, District.latitude, Genotype, Percentage, Year, total_samples) %>%
+  select(District, Admin.level.1.longitude, Admin.level.1.latitude, Genotype, Percentage, Year, total_samples) %>%
   tidyr::pivot_wider(names_from = Genotype, values_from = Percentage, values_fill = 0)
 
 # --- Define colors
@@ -639,7 +639,7 @@ base_map <- ggplot() +
 base_map <- base_map +
   geom_circle(
     data = pie_data,
-    aes(x0 = District.longitude, y0 = District.latitude, r = radius * 1.1, color = Year),  # slightly larger than pie
+    aes(x0 = Admin.level.1.longitude, y0 = Admin.level.1.latitude, r = radius * 1.1, color = Year),  # slightly larger than pie
     linewidth = 3, fill = NA
   )
 
@@ -647,7 +647,7 @@ base_map <- base_map +
 base_map <- base_map +
   geom_scatterpie(
     data = pie_data,
-    aes(x = District.longitude, y = District.latitude, r = radius),
+    aes(x = Admin.level.1.longitude, y = Admin.level.1.latitude, r = radius),
     cols = names(colors_genotype),
     color = "white", # border between slices
     alpha = 1
@@ -665,8 +665,8 @@ base_map <- base_map +
   )
 
 pie_legend <- data.frame(
-  District.longitude = c(48.5, 48.5),   # place just outside map
-  District.latitude = c(13, 10),
+  Admin.level.1.longitude = c(48.5, 48.5),   # place just outside map
+  Admin.level.1.latitude = c(13, 10),
   total_samples = c(20, 30)
 ) %>%
   mutate(radius = scale_pie_size(total_samples))
@@ -675,7 +675,7 @@ pie_legend <- data.frame(
 base_map +
   geom_circle(
     data = pie_legend,
-    aes(x0 = District.longitude, y0 = District.latitude, r = radius),
+    aes(x0 = Admin.level.1.longitude, y0 = Admin.level.1.latitude, r = radius),
     fill = "grey90", color = "grey50"
   ) 
 
@@ -683,6 +683,29 @@ base_map +
 base_map
 
 ggsave("figs/map_K76T.pdf",base_map, width = 8, height = 6, dpi = 300)
+
+
+# --- K76T frequency 2024: Gambella vs other districts
+# 76T present = 0/1 or 1/1 (mixed infections counted as carrying the mutant)
+K76T_2024 <- K76T_met %>%
+  filter(Country == "Ethiopia", Year == "2024",
+         District %in% c("Gambella", "Arba Minch", "Mizan", "Metehera Fentale", "Gondar")) %>%
+  mutate(K76T_present = Genotype %in% c("0/1", "1/1"),
+         Group = ifelse(District == "Gambella", "Gambella", "Other"))
+
+# Per district
+K76T_2024 %>%
+  group_by(District) %>%
+  summarise(n = n(), n_76T = sum(K76T_present), freq_76T = round(100 * mean(K76T_present), 1))
+
+# Gambella vs other districts
+K76T_2024 %>%
+  group_by(Group) %>%
+  summarise(n = n(), n_76T = sum(K76T_present), freq_76T = round(100 * mean(K76T_present), 1))
+
+K76T_tab <- table(K76T_2024$Group, K76T_2024$K76T_present)
+K76T_tab
+fisher.test(K76T_tab)
 
 
 

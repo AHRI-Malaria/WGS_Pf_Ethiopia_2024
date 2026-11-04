@@ -20,6 +20,34 @@ CEN_W        <- 0.06    # half-width at centromere constriction
 CEN_ZONE     <- 40000   # bp, width of constriction zone each side of centromere
 SHAPE_RADIUS <- unit(3, "mm")   # corner rounding for pill shape
 
+LABEL_SIZE    <- 4    # gene label text size
+LABEL_NUDGE_X <- 0.08   # push right of the chromosome edge
+
+# --- Variable chromosome spacing (TIGHT layout) -------------------------------
+# With the fixed CHR_SPACING above, every gap is the same width whether or not
+# there is anything to write in it, so long labels run over the next chromosome
+# while empty gaps waste space. Under the tight layout each gap is sized to the
+# longest label the chromosome on its left actually carries: chromosomes with no
+# labels sit GAP_MIN apart, labelled ones get exactly the room their text needs.
+TIGHT_GAP_MIN <- 0.25   # clear x-units between chromosomes with nothing to label
+TIGHT_GAP_PAD <- 0.30   # breathing room after the longest label (labelled gaps only)
+TIGHT_CHAR_W  <- 0.070 * LABEL_SIZE / 2.5  # x-units per label character; 0.070 was
+                        # calibrated at LABEL_SIZE 2.5 and scales with the text
+X_PER_INCH    <- 1.36   # x-units per inch of panel; holds the physical text scale
+                        # constant, so the figure narrows instead of the text
+                        # shrinking. TIGHT_CHAR_W is calibrated against this.
+NON_PANEL_IN  <- 2.5    # inches for y-axis + legend, added to the saved width
+
+# Composite labels to leave off the figure. A single long one widens the gap for
+# its whole chromosome, so it costs far more space than it carries information.
+LABEL_EXCLUDE <- c("CDC6/SRSF12/RPL31/ADF1")
+
+# Genes of interest: their labels are drawn bold red instead of plain black.
+# Labels are composites like "PABP3/AAT1", and geom_text_repel styles a label as
+# a whole, so the entire label is highlighted when it contains one of these.
+HIGHLIGHT_GENES <- c("KIC7", "AAT1", "DHPS", "MCA2")
+HIGHLIGHT_COLOR <- "#D62728"
+
 # ==============================================================================
 # 1. CHROMOSOME REFERENCE DATA
 # ==============================================================================
@@ -83,6 +111,45 @@ chr_polys <- bind_rows(
          SIMPLIFY = FALSE)
 )
 
+# ==============================================================================
+# 2b. TIGHT LAYOUT: chromosome x-positions driven by label widths
+# ==============================================================================
+
+# Widest label each chromosome carries, in x-axis units (0 where none).
+chr_label_widths <- function(gene_labs) {
+  w <- setNames(rep(0, 14), as.character(1:14))
+  if (!is.null(gene_labs) && nrow(gene_labs) > 0) {
+    agg <- gene_labs %>%
+      group_by(Chr) %>%
+      summarise(w = max(nchar(label)) * TIGHT_CHAR_W, .groups = "drop")
+    w[as.character(agg$Chr)] <- agg$w
+  }
+  w
+}
+
+# Pack chromosomes left to right, giving each gap only the width its labels need.
+# Returns the x positions plus the right-hand padding chr 14's labels require.
+compute_chr_layout <- function(gene_labs) {
+  lab_w     <- chr_label_widths(gene_labs)
+  gap_after <- ifelse(lab_w > 0,
+                      pmax(TIGHT_GAP_MIN, LABEL_NUDGE_X + lab_w + TIGHT_GAP_PAD),
+                      TIGHT_GAP_MIN)
+  x <- numeric(14)
+  x[1] <- CHR_W
+  for (i in 2:14) x[i] <- x[i - 1] + CHR_W + gap_after[[i - 1]] + CHR_W
+  list(pos       = data.frame(Chr = 1:14, x_pos = x),
+       right_pad = unname(gap_after[[14]]))
+}
+
+# Saved width for a tight-layout figure. The panel is scaled at X_PER_INCH so
+# text keeps its physical size; a narrower layout gives a narrower PDF.
+tight_fig_width <- function(gene_labs) {
+  lay  <- compute_chr_layout(gene_labs)
+  span <- (max(lay$pos$x_pos) + CHR_W + lay$right_pad) -
+          (min(lay$pos$x_pos) - CHR_W - TIGHT_GAP_MIN)
+  span / X_PER_INCH + NON_PANEL_IN
+}
+
 # Approximate bp depth of the rounded end caps at default plot size (20x10 in).
 # SHAPE_RADIUS = 3mm; y-scale ~437,500 bp/inch → ~52,000 bp per 3mm.
 CAP_ZONE_BP <- 55000
@@ -107,7 +174,7 @@ chr_half_width_at <- function(chr_val, y_pos) {
 # ==============================================================================
 
 raw <- read.table(
-  file.path(SUBDIR, "countries_integrated_selection_analysis_windows.tsv"),
+  file.path(SUBDIR, "fixed_countries_integrated_selection_analysis_windows.tsv"),
   header = TRUE, sep = "\t", fill = TRUE, quote = "", comment.char = ""
 )
 
@@ -192,6 +259,7 @@ extract_gene_labels <- function(windows_df, raw_src,
     parse_gene_names() %>%
     group_by(Chr, combined_start, combined_end) %>%
     summarise(label = paste(unique(gene_name), collapse = "/"), .groups = "drop") %>%
+    filter(!label %in% LABEL_EXCLUDE) %>%
     mutate(pos_mid = (combined_start + combined_end) / 2) %>%
     group_by(Chr, pos_mid) %>% slice(1) %>% ungroup() %>%
     left_join(chr_lengths %>% select(Chr, x_pos), by = "Chr")
@@ -210,6 +278,7 @@ get_country_gene_labels <- function(country_name, windows_c, raw_parsed,
     parse_gene_names() %>%
     group_by(Chr, combined_start, combined_end) %>%
     summarise(label = paste(unique(gene_name), collapse = "/"), .groups = "drop") %>%
+    filter(!label %in% LABEL_EXCLUDE) %>%
     mutate(pos_mid = (combined_start + combined_end) / 2) %>%
     group_by(Chr, pos_mid) %>% slice(1) %>% ungroup() %>%
     left_join(chr_lengths %>% select(Chr, x_pos), by = "Chr")
@@ -241,7 +310,37 @@ cen_pts <- centromeres %>% rename(x = x_pos, y = cen_mid)
 # ==============================================================================
 
 make_karyogram <- function(windows_df, start_col, end_col,
-                            gene_labs, title_str, subtitle_str) {
+                            gene_labs, title_str, subtitle_str,
+                            tight = FALSE, highlight = character(0)) {
+
+  # Under the tight layout the chromosome positions depend on the labels, so
+  # every x-positioned layer is rebuilt here rather than taken from the globals.
+  if (tight) {
+    lay       <- compute_chr_layout(gene_labs)
+    chr_pos   <- lay$pos
+    right_pad <- lay$right_pad
+    left_pad  <- TIGHT_GAP_MIN
+  } else {
+    chr_pos   <- chr_lengths %>% select(Chr, x_pos)
+    right_pad <- 2.2
+    left_pad  <- 0.8
+  }
+
+  polys <- bind_rows(
+    mapply(make_chr_vertices,
+           chr_x   = chr_pos$x_pos,
+           chr_len = chr_lengths$length,
+           cen_y   = centromeres$cen_mid,
+           SIMPLIFY = FALSE)
+  )
+
+  cen_p <- centromeres %>%
+    select(Chr, cen_mid) %>%
+    left_join(chr_pos, by = "Chr") %>%
+    rename(x = x_pos, y = cen_mid)
+
+  windows_df <- windows_df %>% select(-any_of("x_pos")) %>%
+    left_join(chr_pos, by = "Chr")
 
   win_segs <- windows_df %>%
     mutate(
@@ -255,13 +354,13 @@ make_karyogram <- function(windows_df, start_col, end_col,
     )
 
   # x-axis: spaced chromosome positions and labels
-  x_breaks <- chr_lengths$x_pos
-  x_labels <- as.character(chr_lengths$Chr)
+  x_breaks <- chr_pos$x_pos
+  x_labels <- as.character(chr_pos$Chr)
 
   p <- ggplot() +
 
     # Chromosome white fill
-    geom_shape(data = chr_polys, aes(x = x, y = y, group = group),
+    geom_shape(data = polys, aes(x = x, y = y, group = group),
                fill = "white", color = NA, radius = SHAPE_RADIUS) +
 
     # Selection windows
@@ -271,30 +370,47 @@ make_karyogram <- function(windows_df, start_col, end_col,
               color = NA, alpha = 0.9) +
 
     # Chromosome outline (on top for clean border)
-    geom_shape(data = chr_polys, aes(x = x, y = y, group = group),
+    geom_shape(data = polys, aes(x = x, y = y, group = group),
                fill = NA, color = "black", linewidth = 0.5,
                radius = SHAPE_RADIUS) +
 
     # Centromere solid black disc
-    geom_point(data = cen_pts, aes(x = x, y = y),
+    geom_point(data = cen_p, aes(x = x, y = y),
                shape = 16, color = "black", size = 4.5)
 
   if (!is.null(gene_labs) && nrow(gene_labs) > 0) {
+    gene_labs <- gene_labs %>% select(-any_of("x_pos")) %>%
+      left_join(chr_pos, by = "Chr")
     # Repelled labels: anchor point is just to the right of each chromosome,
     # direction = "y" keeps labels aligned to their chromosome's x column
     # Anchor exactly at chromosome right edge; repel only vertically
+    # Built outside mutate(): with no genes to highlight there is no pattern to
+    # match against, and str_detect() errors on an NA pattern rather than
+    # returning FALSE.
+    hl_flag <- if (length(highlight) > 0) {
+      str_detect(gene_labs$label,
+                 paste0("\\b(", paste(highlight, collapse = "|"), ")\\b"))
+    } else {
+      rep(FALSE, nrow(gene_labs))
+    }
+
     lab_anchor <- gene_labs %>%
-      mutate(x_anchor = x_pos + CHR_W, y_anchor = pos_mid)
+      mutate(
+        x_anchor = x_pos + CHR_W,
+        y_anchor = pos_mid,
+        lab_col  = ifelse(hl_flag, HIGHLIGHT_COLOR, "black"),
+        lab_face = ifelse(hl_flag, "bold", "plain")
+      )
 
     p <- p +
       geom_text_repel(
         data               = lab_anchor,
-        aes(x = x_anchor, y = y_anchor, label = label),
+        aes(x = x_anchor, y = y_anchor, label = label,
+            colour = lab_col, fontface = lab_face),
         direction          = "y",       # only shift vertically to avoid overlap
         hjust              = 0,
-        color              = "black",
-        size               = 2.5,
-        nudge_x            = 0.08,      # small fixed push right of chromosome edge
+        size               = LABEL_SIZE,
+        nudge_x            = LABEL_NUDGE_X,  # push right of chromosome edge
         segment.color      = "grey40",
         segment.size       = 0.3,
         segment.linetype   = "solid",
@@ -307,10 +423,13 @@ make_karyogram <- function(windows_df, start_col, end_col,
   }
 
   p +
+    # lab_col holds literal colours, so map them straight through without
+    # drawing a legend for them
+    scale_colour_identity() +
     scale_fill_manual(values = tool_colors, labels = tool_labels,
                       name = "Tools detecting window", drop = FALSE) +
     scale_x_continuous(breaks = x_breaks, labels = x_labels,
-                       expand = expansion(add = c(0.8, 2.2))) +
+                       expand = expansion(add = c(left_pad, right_pad))) +
     scale_y_reverse(labels = function(x) paste0(round(x / 1e6, 1), " Mb"),
                     expand = expansion(mult = 0.03)) +
     labs(x = "Chromosome", y = "Position",
@@ -350,10 +469,16 @@ message("Saved: ", SUBDIR, "/karyogram_all_countries.pdf/.png")
 countries <- sort(unique(windows_by_country$country))
 message("Generating per-country figures for: ", paste(countries, collapse = ", "))
 
+# Ethiopia is the paper figure, so it uses the tight layout; the rest keep the
+# original even spacing.
+TIGHT_COUNTRIES <- c("Ethiopia")
+
 for (ctry in countries) {
   win_c <- windows_by_country %>% filter(country == ctry)
   glabs <- get_country_gene_labels(ctry, windows_by_country, raw_parsed,
                                     min_tools = 2)
+
+  tight_c <- ctry %in% TIGHT_COUNTRIES
 
   p_c <- make_karyogram(
     win_c,
@@ -361,11 +486,18 @@ for (ctry in countries) {
     end_col      = "win_end",
     gene_labs    = glabs,
     title_str    = paste0("Selection Signals - ", ctry),
-    subtitle_str = "Windows detected by >=2 tools | iHS, XP-EHH, Tajima's D, IBD"
+    subtitle_str = "Windows detected by >=2 tools | iHS, XP-EHH, Tajima's D, IBD",
+    tight        = tight_c,
+    highlight    = if (tight_c) HIGHLIGHT_GENES else character(0)
   )
 
-  fname <- paste0("karyogram_", gsub(" ", "_", ctry))
-  ggsave(file.path(SUBDIR, paste0(fname, ".pdf")), plot = p_c, width = 20, height = 10, device = "pdf")
-  message("  Saved: ", SUBDIR, "/", fname)
+  width_c <- if (tight_c) tight_fig_width(glabs) else 20
+
+  fname <- paste0("fixed_karyogram_", gsub(" ", "_", ctry))
+  ggsave(file.path(SUBDIR, paste0(fname, ".pdf")), plot = p_c,
+         width = width_c, height = 10, device = "pdf")
+  message("  Saved: ", SUBDIR, "/", fname,
+          sprintf(" (width %.1f in%s)", width_c, if (tight_c) ", tight layout" else ""))
 }
+
 
