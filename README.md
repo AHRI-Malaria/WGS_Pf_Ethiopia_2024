@@ -74,3 +74,8 @@ R scripts were executed in R version 4.4.2 using the following packages: ape (5.
 
 ### Python environment
 Python scripts were run in python version 3.12.7 and using the following packages: numpy (1.26.4), scikit-allel (1.3.13), pysam (0.23.3), plotly (5.24.1), scipy (1.14.1), matplotlib (3.9.3), pandas (2.2.3), tqdm (4.66.5)
+
+
+Raw sequencing data used in this analysis can be downloaded from [ENA](https://www.ebi.ac.uk/ena/browser/view/PRJEB126687)
+As a demo, a small number of samples can be downloaded and bioinformatics scripts can be run in the order indicated above. The The pipeline removes human reads, aligns the remaining reads to the *P. falciparum* reference genome (BAM) and calls variants per sample (VCF). The per-sample VCFs are then merged and filtered into a genotype matrix, followed by population genetic analyses (PCA, within-host diversity (Fws), ancestry, Jost's D, IBD) and selection scans (EHH, Tajima's D), as well as haplotype analyses around *k13* and other drug resistance loci.
+Total expected runtime: 3-6 hours for a small subset (e.g. 5 samples). Larger numbers of samples will take proportionally longer, depending on CPU cores, available memory and disk speed.
